@@ -311,7 +311,8 @@ class DramaBot:
         for ep_info_msg_id in ep_infos_msg_id:
             #print('ep_info_msg_id',ep_info_msg_id)
             await app.delete_messages(callback_query.message.chat.id, ep_info_msg_id)
-        search_id,resolution = map(int, callback_query.data.split(':'))
+        search_id,resint = map(int, callback_query.data.split(':'))
+        resolution = str(resint)
         if search_id != self.search_id:
             await client.answer_callback_query(callback_query.id, "Cannot select resolution on previous results.", show_alert=True)
             return
