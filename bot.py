@@ -275,9 +275,9 @@ class DramaBot:
                 break   
         else:
             valid_resolutions = ['360','480','720','1080']
-        logger.debug(f'Set output names based on {self.target_series['title']}')
+        #logger.debug(f'Set output names based on {self.target_series['title']}')
         self.series_title, self.episode_prefix = self.DCL.set_out_names(self.target_series)
-        logger.debug(f'{self.series_title = }, {self.episode_prefix = }')
+        #logger.debug(f'{self.series_title = }, {self.episode_prefix = }')
         downloader_config['download_dir'] = os.path.join(f"{downloader_config['download_dir']}", f"{self.series_title}")
         logger.debug(f"Final download dir: {downloader_config['download_dir']}")
         logger.debug(f'{valid_resolutions = }')
@@ -389,7 +389,7 @@ class DramaBot:
                             await client.send_document(callback_query.from_user.id, document=filepath, progress=progress, progress_args=(message,),thumb=thumbnail,)
                         else:
                             await client.send_document(callback_query.from_user.id, document=filepath, progress=progress, progress_args=(message,))
-                app.delete_messages(callback_query.message.chat.id, message.id)            
+                await app.delete_messages(callback_query.message.chat.id, message.id)            
             except Exception as e:
                 print(f"An error occurred while sending files: {e}")
             try:
