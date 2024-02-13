@@ -1,32 +1,3 @@
-anime (gogoanime):
-  base_url: https://anitaku.to/
-  search_url: search.html?keyword=
-  episodes_list_url: https://ajax.gogo-load.com/ajax/load-list-episode?ep_start=_ep_start_&ep_end=_ep_end_&id=
-  episodes_list_id_element: div.anime_info_body input#movie_id
-  search_title_element: ul.items li p.name a
-  search_link_element: ul.items li p.name a
-  series_info_element: div.anime_info_body p.type
-  episode_list_element: ul#episode_page li a
-  episode_link_element: ul#episode_related li a
-  episode_sub_type_element: ul#episode_related li a div.cate
-  stream_links_element: div.anime_muti_link a
-  download_fetch_link: encrypt-ajax.php
-  download_dir: D:\Anime
-  request_timeout: 30
-  alternate_resolution_selector: 'lowest'    # strategy to choose the next available resolution. Options: [lowest, highest, absolute]
-  preferred_urls:                             # preferred urls while fetching download links. uses same order of preference
-  blacklist_urls:                             # avoid below urls while fetching download links
-
-anime (animepahe):
-  base_url: https://animepahe.ru/
-  search_url: api?m=search&q=
-  episodes_list_url: api?m=release&sort=episode_asc&id=
-  download_link_url: api?m=links&p=kwik&id=
-  episode_url: play/_anime_id_/_episode_id_
-  download_dir: D:\Anime
-  request_timeout: 30
-  alternate_resolution_selector: 'lowest'    # strategy to choose the next available resolution. Options: [lowest, highest, absolute]
-
 drama:
   base_url: https://myasiantv.ac/
   search_url: search.html?key=
@@ -48,12 +19,12 @@ drama:
   blacklist_urls:                             # avoid below urls while fetching download links
 
 DownloaderConfig:
-  download_dir: F:\Test   # creates a target folder with name of series under this. Uses this, if none specified above
+  download_dir: /usr/src/app/download   # creates a target folder with name of series under this. Uses this, if none specified above
   temp_download_dir: auto                     # if set to auto, creates a temp location under the target folder
   concurrency_per_file: auto                  # concurrency to load segments in a m3u8 file
   request_timeout: 30
   max_parallel_downloads: 2
-  thumbpath: F:\Test\thumbnail\
+  thumbpath: /usr/src/app/download/thumbnail
 
 LoggerConfig:
   log_level: INFO
