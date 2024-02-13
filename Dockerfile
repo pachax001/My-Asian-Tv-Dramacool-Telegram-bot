@@ -14,7 +14,8 @@ RUN apk --no-cache add \
     python3-dev \
     libffi-dev \
     bash
-
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
 # Copy requirements file and install dependencies
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
