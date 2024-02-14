@@ -175,7 +175,7 @@ class DramaBot:
         self.target_series = None
         self.episode_links = None
         self.ep_infos = None
-        self.target_dl_links = None
+        self.target_dl_links = {}
         self.series_title = None
         self.episode_prefix = None
         self.search_results_message_id = None
@@ -211,7 +211,7 @@ class DramaBot:
         await app.delete_messages(callback_query.message.chat.id, search_res_msg.id)
         self.episode_links = None
         self.ep_infos = None
-        self.target_dl_links = None
+        self.target_dl_links ={}
         self.series_title = None
         self.episode_prefix = None
         logger.debug(f'{series_index = }')
@@ -279,7 +279,7 @@ class DramaBot:
         self.series_title, self.episode_prefix = self.DCL.set_out_names(self.target_series)
         #logger.debug(f'{self.series_title = }, {self.episode_prefix = }')
         downloader_config['download_dir'] = os.path.join(f"{downloader_config['download_dir']}", f"{self.series_title}")
-        logger.debug(f"Final download dir: {downloader_config['download_dir']}")
+        #logger.debug(f"Final download dir: {downloader_config['download_dir']}")
         logger.debug(f'{valid_resolutions = }')
         keyboard = InlineKeyboardMarkup(
         [[InlineKeyboardButton(text=res, callback_data=f"{self.search_id}:{res}")] for res in valid_resolutions]
@@ -313,6 +313,8 @@ class DramaBot:
             await app.delete_messages(callback_query.message.chat.id, ep_info_msg_id)
         search_id,resint = map(int, callback_query.data.split(':'))
         resolution = str(resint)
+        print('search_id',search_id)
+        print('resolution',resolution)
         if search_id != self.search_id:
             await client.answer_callback_query(callback_query.id, "Cannot select resolution on previous results.", show_alert=True)
             return
@@ -407,7 +409,7 @@ class DramaBot:
             await app.delete_messages(callback_query.message.chat.id, proceed_msg.id)
             for ep_details_msg_id in ep_details_msg_ids:
                 await app.delete_messages(callback_query.message.chat.id, ep_details_msg_id)
-            self.target_dl_links = None
+            self.target_dl_links = {}
             self.target_series = None
             self.search_results = {}
             logger.debug("Download cancelled.")
