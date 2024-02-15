@@ -23,7 +23,7 @@ DownloaderConfig:
   temp_download_dir: auto                     # if set to auto, creates a temp location under the target folder
   concurrency_per_file: auto                  # concurrency to load segments in a m3u8 file
   request_timeout: 30
-  max_parallel_downloads: 2
+  max_parallel_downloads: 1
   thumbpath: /usr/src/app/download/thumbnail
 
 LoggerConfig:
