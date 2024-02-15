@@ -644,9 +644,9 @@ class DramaBot:
                 print(f"An error occurred while sending files: {e}")
                 
             try:
-                # print(f"Deleted {directory}")
+                print(f"Deleted {directory}")
                 shutil.rmtree(directory)
-                await app.send_message("All Episodes Uploaded.")
+                await app.send_message(callback_query.message.chat.id,"All Episodes Uploaded.",)
             except Exception as e:
                 print(f"An error occurred while deleting {directory}: {e}")
             
