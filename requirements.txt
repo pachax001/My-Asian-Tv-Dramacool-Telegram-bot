@@ -9,3 +9,5 @@ undetected-chromedriver
 pyrogram
 tgcrypto
 python-dotenv
+pymongo
+pymediainfo
