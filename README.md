@@ -4,14 +4,14 @@
 ## This Bot can download shows and movies from  [MyAsianTv](https://myasiantv.ac/). 
 ### Base code is from [UDB](https://github.com/Prudhvi-pln/udb).
 ## Features ✅
-Can Download episode range for a drama.
-Can set captions and Thumnails for medias.
+Can Download episode range for a drama.<br>
+Can set captions and Thumnails for medias.<br>
 ## ❗Limitations ❗
-Only can download one movie or a series at one time.
-If Multiple Episode are selected all episodes will be downloaded simultaneously but one episode after episode will be uploaded.
-No progress for download. But will send a message saying the episode dowloaded.
-Don't send multiple commands while a process is ongoing.
-Thumbnail and caption feature will only work if the MongoDB is connected.(Recommended to add this)
+Only can download one movie or a series at one time.<br>
+If Multiple Episode are selected all episodes will be downloaded simultaneously but one episode after episode will be uploaded.<br>
+No progress for download. But will send a message saying the episode dowloaded.<br>
+Don't send multiple commands while a process is ongoing.<br>
+Thumbnail and caption feature will only work if the MongoDB is connected.(Recommended to add this)<br>
 ## Installation
 
 ### Deploy in your vps(Linux)
