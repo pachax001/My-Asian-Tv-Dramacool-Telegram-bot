@@ -12,6 +12,8 @@ If Multiple Episode are selected all episodes will be downloaded simultaneously 
 No progress for download. But will send a message saying the episode dowloaded.<br>
 Don't send multiple commands while a process is ongoing.<br>
 Thumbnail and caption feature will only work if the MongoDB is connected.(Recommended to add this)<br>
+Only the owner can use the bot.
+All files are send as documents.
 ## Installation
 
 ### Deploy in your vps(Linux)
