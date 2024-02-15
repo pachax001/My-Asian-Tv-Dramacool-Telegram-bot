@@ -138,7 +138,7 @@ sudo docker image prune -a
 ### config_udb.yaml file
 #### Warning ⚠
 ##### It is recommend to keep default settings as usual
-* alternate_resolution_selector: - To select the next quality. For example if this field is set to lowest and youchoose the download quality as 720p and if 720p is not available in some episodes this option will trigger and download the next lowest quality episode.
+* alternate_resolution_selector: - To select the next quality. For example if this field is set to lowest and you choose the download quality as 720p and if 720p is not available in some episodes this option will trigger and download the next lowest quality episode.
 * max_parallel_downloads: Max parallel downloads. Recommended value is 1.
 #### ❗Do not Change other Values ❗
 
