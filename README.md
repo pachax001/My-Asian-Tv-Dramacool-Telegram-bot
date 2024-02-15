@@ -124,7 +124,7 @@ sudo docker image prune -a
 ```
 
 ## Configs
-
+### config.env file
 * BOT_TOKEN     - Get bot token from @BotFather
 
 * APP_ID        - From my.telegram.org (or @UseTGXBot)
@@ -134,6 +134,13 @@ sudo docker image prune -a
 * OWNER_ID      - Your Telegram ID. Get from send /id command to @MissRose_bot
 
 * DATABASE_URL  - MongoDB URL ([Click here](https://github.com/pachax001/My-Asian-Tv-Dramacool-Telegram-bot/blob/main/README.md#-generate-mongodb-database) for more info on MongoDB URL.) </br>
+
+### config_udb.yaml file
+#### Warning ⚠
+##### It is recommend to keep default settings as usual
+* alternate_resolution_selector: - To select the next quality. For example if this field is set to lowest and youchoose the download quality as 720p and if 720p is not available in some episodes this option will trigger and download the next lowest quality episode.
+* max_parallel_downloads: Max parallel downloads. Recommended value is 1.
+#### ❗Do not Change other Values ❗
 
 ### 🤖 ***Bot Commands***
 ```
