@@ -12,6 +12,7 @@ import asyncio
 from dotenv import load_dotenv
 import html
 from pyrogram.enums import ParseMode
+from Clients.BaseClient import BaseClient
 # import pymongo
 # from pymongo import MongoClient, errors
 from urllib.parse import urlparse
@@ -28,9 +29,11 @@ waiting_for_caption = False
 waiting_for_search_drama = False
 waiting_for_new_caption = False
 waiting_for_user_ep_range = False
+waiting_for_download_complete = False
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
+base_client = BaseClient()
+#print(base_client.udb_episode_dict)
 # caption = document["caption"]
 # print(caption)
 # print(document)
@@ -136,6 +139,8 @@ def get_resolutions(items):
 
 
 def downloader(ep_details, dl_config):
+    global waiting_for_download_complete
+    waiting_for_download_complete = False
     """
     download function where Download Client initialization and download happens.
     Accepts two dicts: download config, episode details. Returns download status.
@@ -197,8 +202,10 @@ def downloader(ep_details, dl_config):
 
         end_epoch = int(time())
         download_time = pretty_time(end_epoch - start_epoch, fmt="h m s")
+        
         return 2, f"[{end}] Download completed for {out_file} in {download_time}!"
-
+    
+    
 
 def batch_downloader(download_fn, links, dl_config, max_parallel_downloads):
 
@@ -235,12 +242,13 @@ class DramaBot:
         self.reset()
 
     def reset(self):
+        #print("Reset method called")
         self.waiting_for_ep_range = False
         self.ep_range = None
         self.ep_start = None
         self.ep_end = None
         self.target_series = None
-        self.episode_links = None
+        self.episode_links = {}
         self.ep_infos = None
         self.target_dl_links = {}
         self.series_title = None
@@ -250,6 +258,10 @@ class DramaBot:
         self.search_results = {}
 
     async def drama(self, client, message):
+        #print(base_client.udb_episode_dict)
+        self.DCL.udb_episode_dict.clear()
+        base_client.udb_episode_dict.clear()
+        #print(self.target_dl_links)
         global search_res_msg
         global waiting_for_search_drama
         self.reset()
@@ -296,11 +308,12 @@ class DramaBot:
             return
         await callback_query.message.edit_reply_markup(reply_markup=None)
         await app.delete_messages(callback_query.message.chat.id, search_res_msg.id)
-        self.episode_links = None
+        self.episode_links = {}
         self.ep_infos = None
         self.target_dl_links = {}
         self.series_title = None
         self.episode_prefix = None
+        episodes = []
         logger.debug(f"{series_index = }")
         self.target_series = self.search_results[series_index]
         # print('target_series type',type(self.target_series))
@@ -444,10 +457,11 @@ class DramaBot:
                 show_alert=True,
             )
             return
+        print('episode_links',self.episode_links)
         self.target_dl_links = self.DCL.fetch_m3u8_links(
             self.episode_links, resolution, self.episode_prefix
         )
-        # print('target_dl_links',self.target_dl_links)
+        print('target_dl_links',self.target_dl_links)
         for ep, details in self.target_dl_links.items():
             episode_name = details["episodeName"]
             episode_subs = details["episodeSubs"]
@@ -640,6 +654,9 @@ class DramaBot:
                             )
 
                 await app.delete_messages(callback_query.message.chat.id, message.id)
+                self.target_dl_links = {}
+                self.target_series = None
+                self.search_results = {}
             except Exception as e:
                 print(f"An error occurred while sending files: {e}")
                 
@@ -650,7 +667,7 @@ class DramaBot:
             except Exception as e:
                 print(f"An error occurred while deleting {directory}: {e}")
             
-            # print('downloader message',downloader)
+            print('downloader message',downloader)
         else:
             await callback_query.message.reply_text("Download cancelled.")
             await callback_query.message.edit_reply_markup(reply_markup=None)
