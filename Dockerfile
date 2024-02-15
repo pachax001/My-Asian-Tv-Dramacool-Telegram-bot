@@ -1,21 +1,21 @@
 # Use a lightweight base image
-FROM alpine:latest
+FROM mysterysd/wzmlx:latest
 
-# Set the working directory
 WORKDIR /usr/src/app
 RUN chmod 777 /usr/src/app
 # Install necessary packages and build dependencies
-RUN apk --no-cache add \
+RUN apt-get update && \
+    apt-get install -y \
     python3 \
-    py3-pip \
+    python3-pip \
     git \
     ffmpeg \
-    build-base \
+    build-essential \
     python3-dev \
     libffi-dev \
-    bash
-RUN python3 -m venv /venv
-ENV PATH="/venv/bin:$PATH"
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy requirements file and install dependencies
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
