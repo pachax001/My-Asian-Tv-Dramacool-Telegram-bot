@@ -646,7 +646,7 @@ class DramaBot:
             try:
                 # print(f"Deleted {directory}")
                 shutil.rmtree(directory)
-
+                await app.send_message("All Episodes Uploaded.")
             except Exception as e:
                 print(f"An error occurred while deleting {directory}: {e}")
             
@@ -676,7 +676,7 @@ async def start(client, message):
         [
             BotCommand("start", "Start the bot"),
             BotCommand("drama", "Search and download dramas"),
-            BotCommand("thumbset", "Set thumbnail for the bot"),
+            BotCommand("usetting", "Set thumbnail and caption for uploaded media"),
         ]
     )
     if message.from_user.id != OWNER_ID:
@@ -697,7 +697,7 @@ async def start(client, message):
                 ],
                 [
                     InlineKeyboardButton(
-                        text="Bot Repo", url="https://t.me/kdramasmirrorlog2"
+                        text="Bot Repo", url="https://github.com/pachax001/My-Asian-Tv-Dramacool-Telegram-bot"
                     )
                 ],
             ]
@@ -723,7 +723,7 @@ async def drama(client, message):
     await bot.drama(client, message)
 
 
-@app.on_message(filters.command("thumbset") & filters.user(OWNER_ID))
+@app.on_message(filters.command("usetting") & filters.user(OWNER_ID))
 async def thumb_without_reply(client, message):
     if dbmongo is None:
         await app.send_message(
