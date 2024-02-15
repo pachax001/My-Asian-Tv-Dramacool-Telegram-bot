@@ -23,7 +23,7 @@ git clone https://github.com/pachax001/My-Asian-Tv-Dramacool-Telegram-bot  && cd
 Install Docker by following the [official Docker docs](https://docs.docker.com/engine/install/debian/)
 
 Fill the variables in [config.env](https://github.com/pachax001/My-Asian-Tv-Dramacool-Telegram-bot/blob/main/config.env)
-<br> [Click here](https://github.com/pachax001/My-DramaList-Bot/blob/main/README.md#configs) for more info on config. </br>
+<br> [Click here](https://github.com/pachax001/My-Asian-Tv-Dramacool-Telegram-bot/blob/main/README.md#configs) for more info on config. </br>
 
 - There are two methods to build and run the docker:
   1. Using official docker commands.
@@ -131,7 +131,7 @@ sudo docker image prune -a
 
 * OWNER_ID      - Your Telegram ID. Get from send /id command to @MissRose_bot
 
-* DATABASE_URL  - MongoDB URL ([Click here](https://github.com/pachax001/My-DramaList-Bot/blob/main/README.md#configs) for more info on MongoDB URL.) </br>
+* DATABASE_URL  - MongoDB URL ([Click here](https://github.com/pachax001/My-Asian-Tv-Dramacool-Telegram-bot/blob/main/README.md#-generate-mongodb-database) for more info on MongoDB URL.) </br>
 
 ### 🤖 ***Bot Commands***
 ```
