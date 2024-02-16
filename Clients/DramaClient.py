@@ -31,7 +31,7 @@ class DramaClient(BaseClient):
     '''
     # step-0
     def __init__(self, config, session=None):
-        super().__init__(config['request_timeout'], session)
+        #super().__init__(config['request_timeout'], session)
         self.base_url = config['base_url']
         self.search_url = self.base_url + config['search_url']
         self.episodes_list_url = self.base_url + config['episodes_list_url']
@@ -46,6 +46,8 @@ class DramaClient(BaseClient):
         self.preferred_urls = config['preferred_urls'] if config['preferred_urls'] else []
         self.blacklist_urls = config['blacklist_urls'] if config['blacklist_urls'] else []
         self.selector_strategy = config.get('alternate_resolution_selector', 'lowest')
+        self.hls_size_accuracy = config.get('hls_size_accuracy', 0)
+        super().__init__(config['request_timeout'], session)
         self.logger.debug(f'Drama client initialized with {config = }')
         # regex to fetch the encrypted url args required to fetch master m3u8 / download links
         self.ENCRYPTED_URL_ARGS_REGEX = re.compile(rb'data-value="(.+?)"')
@@ -231,7 +233,7 @@ class DramaClient(BaseClient):
         return "\n".join(results)
     '''
     # step-4
-    def fetch_episode_links(self, episodes, ep_start, ep_end):
+    def fetch_episode_links(self, episodes, ep_start, ep_end, specific_eps):
         '''
         fetch only required episodes based on episode range provided
         '''
@@ -240,7 +242,7 @@ class DramaClient(BaseClient):
         for episode in episodes:
             # self.logger.debug(f'Current {episode = }')
 
-            if float(episode.get('episode')) >= ep_start and float(episode.get('episode')) <= ep_end:
+            if (float(episode.get('episode')) >= ep_start and float(episode.get('episode')) <= ep_end) or (float(episode.get('episode')) in specific_eps):
                 self.logger.debug(f'Processing {episode = }')
 
                 self.logger.debug(f'Fetching stream link')
@@ -283,16 +285,23 @@ class DramaClient(BaseClient):
     def fetch_m3u8_links(self, target_links, resolution, episode_prefix):
         '''
         return dict containing m3u8 links based on resolution
-        '''
-        _get_ep_name = lambda resltn: f'{self.udb_episode_dict.get(ep).get("episodeName")} - {resltn}P.mp4'
 
+        '''
+        
+        _get_ep_name = lambda resltn: f'{self.udb_episode_dict.get(ep).get("episodeName")} - {resltn}P.mp4'
+        #print("udb_episode_dict:", self.udb_episode_dict)
+        #print("fetch_m3u8_links_func_Target Links:", target_links)
+        #print("fetch_m3u8_links_func_Resolution:", resolution)
         for ep, link in target_links.items():
             error = None
             self.logger.debug(f'Epsiode: {ep}, Link: {link}')
             info = f'Episode: {self._safe_type_cast(ep)} |'
 
             # select the resolution based on the selection strategy
+            #print("fetch_m3u8_links_func_Link:", link)
+            #print("fetch_m3u8_links_func_Link_Keys:", link.keys())
             selected_resolution = self._resolution_selector(link.keys(), resolution, self.selector_strategy)
+            #print("fetch_m3u8_links_func_Selected Resolution:", selected_resolution)
             res_dict = link.get(selected_resolution)
             self.logger.debug(f'{selected_resolution = } based on {self.selector_strategy = }, Data: {res_dict = }')
 
@@ -324,5 +333,5 @@ class DramaClient(BaseClient):
                 self.logger.error(f'{info} {error}')
 
         final_dict = { k:v for k,v in self._get_udb_dict().items() }
-
+        #print("Final Dict:", final_dict)
         return final_dict
