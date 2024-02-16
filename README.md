@@ -5,7 +5,8 @@
 ### Base code is from [UDB](https://github.com/Prudhvi-pln/udb).
 ## Features ✅
 Can Download episode range for a drama.<br>
-Can set captions and Thumnails for medias.<br>
+Select specific episodes in addition to a range of episodes. Examples of valid inputs: 1,3,5 | 1-4,6 | 5 | 1-5 | 1- | -3 <br>
+Can set captions and Thumnails for medias. <br>
 ## ❗Limitations ❗
 Only can download one movie or a series at one time.<br>
 If Multiple Episode are selected all episodes will be downloaded simultaneously but one episode after episode will be uploaded.<br>
