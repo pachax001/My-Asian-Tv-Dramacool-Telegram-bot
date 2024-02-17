@@ -7,7 +7,7 @@
 Can Download episode range for a drama.<br>
 Select specific episodes in addition to a range of episodes. Examples of valid inputs: 1,3,5 | 1-4,6 | 5 | 1-5 | 1- | -3 <br>
 Can set captions and Thumnails for medias. <br>
-Concurrent Upload of Maxmimu 16 episodes per upload
+Concurrent Upload of Maxmimum 16 episodes per upload
 ## ❗Limitations ❗
 Only can download one movie or a series at one time.<br>
 No progress for download. But will send a message saying the episode dowloaded.<br>
