@@ -7,14 +7,15 @@
 Can Download episode range for a drama.<br>
 Select specific episodes in addition to a range of episodes. Examples of valid inputs: 1,3,5 | 1-4,6 | 5 | 1-5 | 1- | -3 <br>
 Can set captions and Thumnails for medias. <br>
+Concurrent Upload of Maxmimu 16 episodes per upload
 ## ❗Limitations ❗
 Only can download one movie or a series at one time.<br>
-If Multiple Episode are selected all episodes will be downloaded simultaneously but one episode after episode will be uploaded.<br>
 No progress for download. But will send a message saying the episode dowloaded.<br>
 Don't send multiple commands while a process is ongoing.<br>
 Thumbnail and caption feature will only work if the MongoDB is connected.(Recommended to add this)<br>
 Only the owner can use the bot.
 All files are send as documents.
+Upload progress messages are everywhere.
 ## Installation
 
 ### Deploy in your vps(Linux)
