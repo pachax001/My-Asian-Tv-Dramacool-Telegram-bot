@@ -280,8 +280,7 @@ class DramaBot:
             "Search Results:", reply_markup=reply_markup
         )
         waiting_for_search_drama = True
-    @app.on_message(filters.command("shell"))
-    async def shell(client, message):
+    async def shell(self,client, message):
         try:
             cmd = message.text.split(maxsplit=1)
             if len(cmd) == 1:
@@ -1363,6 +1362,8 @@ async def help(client, message):
 
 @app.on_message(filters.command("log", prefixes="/"))
 async def send_log(client, message):
+    if message.from_user.id != OWNER_ID:
+        return
     try:
         user_id = message.from_user.id
         if user_id == OWNER_ID:
