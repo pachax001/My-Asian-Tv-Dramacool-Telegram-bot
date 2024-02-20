@@ -14,55 +14,41 @@ import html
 from pyrogram.enums import ParseMode
 from Clients.BaseClient import BaseClient
 import pyrogram.errors
-# import pymongo
-# from pymongo import MongoClient, errors
-from urllib.parse import urlparse
+import zipfile
 from db import usersettings_collection as dbmongo
 from bson.binary import Binary
 import re
-
-# from moviepy.editor import VideoFileClip
 import math
 from pymediainfo import MediaInfo
-
+import sys
 last_update_time = 0
 waiting_for_photo = False
 waiting_for_caption = False
 waiting_for_search_drama = False
 waiting_for_new_caption = False
 waiting_for_user_ep_range = False
-waiting_for_download_complete = False
+waiting_for_mirror = False
+telegram_upload = False
+waiting_for_zip_mirror = False
+ongoing_task = False
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 base_client = BaseClient()
-# print(base_client.udb_episode_dict)
-# caption = document["caption"]
-# print(caption)
-# print(document)
-
-handler = logging.FileHandler("bot.log")
+handler = logging.FileHandler("log.txt")
 handler.setLevel(logging.DEBUG)
-
-
 stream_handler = logging.StreamHandler()
 stream_handler.setLevel(logging.DEBUG)
-
-
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 stream_handler.setFormatter(formatter)
-
-
 logger.addHandler(handler)
 logger.addHandler(stream_handler)
-
-
 config_file = "config_udb.yaml"
 config = load_yaml(config_file)
 downloader_config = config["DownloaderConfig"]
 max_parallel_downloads = downloader_config["max_parallel_downloads"]
 thumbpath = downloader_config["thumbpath"]
-
 ep_range_msg = None
 search_res_msg = None
 select_res_msg = None
@@ -88,11 +74,8 @@ def is_thumb_in_db():
 def check_caption():
     if dbmongo is not None:
         document = dbmongo.find_one()
-        # caption = document["caption"]
         if document is not None:
             caption = document["caption"]
-            # print(caption)
-
             if caption is None:
                 return 0
             else:
@@ -112,26 +95,44 @@ def convert_size(size_bytes):
 
 
 if not os.path.exists(downloader_config["download_dir"]):
-    print(f"Creating download directory:{downloader_config['download_dir']}...")
+    logger.debug(f"Creating download directory:{downloader_config['download_dir']}...")
     os.makedirs(downloader_config["download_dir"])
 if not os.path.exists(thumbpath):
     print(f"Creating thumbnail directory:{thumbpath}...")
     os.makedirs(thumbpath)
-# load_dotenv()
 load_dotenv("config.env", override=True)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
+if not BOT_TOKEN:
+    logger.error("No bot token provided.")
+    sys.exit(1)
 OWNER_ID = int(os.getenv("OWNER_ID"))
-
+if not BOT_TOKEN:
+    logger.error("No Owner id provided.")
+    sys.exit(1)
 API_ID = os.getenv("API_ID")
-
+if not API_ID:
+    logger.error("No API ID provided.")
+    sys.exit(1)
 API_HASH = os.getenv("API_HASH")
+if not API_HASH:
+    logger.error("No API hash provided.")
+    sys.exit(1)
+DEFAULT_RCLONE_PATH = os.getenv("DEFAULT_RCLONE_PATH")
+if not DEFAULT_RCLONE_PATH:
+    logger.info("No rclone path provided. Cloud upload won't work.")
+RCLONE_CONF_PATH = os.getenv("RCLONE_CONF_PATH")
+rclone_conf_file_path = os.path.join(RCLONE_CONF_PATH, "rclone.conf")
+if not RCLONE_CONF_PATH or not os.path.isfile(rclone_conf_file_path):
+    logger.info("No rclone.conf found. Cloud upload won't work.")
+app = Client(
+    "my_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
+    max_concurrent_transmissions=16,
+)
 
 
-app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, max_concurrent_transmissions=16)
-
-
-# app.run(set_commands(app))
 def get_resolutions(items):
     """
     genarator function to yield the resolutions of available episodes
@@ -141,75 +142,54 @@ def get_resolutions(items):
 
 
 def downloader(ep_details, dl_config):
-    global waiting_for_download_complete
-    waiting_for_download_complete = False
     """
     download function where Download Client initialization and download happens.
     Accepts two dicts: download config, episode details. Returns download status.
     """
-    # load color themes
 
     get_current_time = lambda fmt="%F %T": datetime.now().strftime(fmt)
     start = get_current_time()
     start_epoch = int(time())
-
     out_file = ep_details["episodeName"]
-
     if "downloadLink" not in ep_details:
         return f'[{start}] Download skipped for {out_file}, due to error: {ep_details.get("error", "Unknown")}'
-
     download_link = ep_details["downloadLink"]
     download_type = ep_details["downloadType"]
     referer = ep_details["refererLink"]
     out_dir = dl_config["download_dir"]
 
-    # create download client for the episode based on type
     if download_type == "hls":
         logger.debug(f"Creating HLS download client for {out_file}")
         from Utils.HLSDownloader import HLSDownloader
-
         dlClient = HLSDownloader(dl_config, referer, out_file)
-
     elif download_type == "mp4":
         logger.debug(f"Creating MP4 download client for {out_file}")
         from Utils.BaseDownloader import BaseDownloader
-
         dlClient = BaseDownloader(dl_config, referer, out_file)
-
     else:
-        return (
-            3,
-            f"[{start}] Download skipped for {out_file}, due to unknown download type [{download_type}]",
-        )
+        return (3,f"[{start}] Download skipped for {out_file}, due to unknown download type [{download_type}]",)
     logger.debug(f"Download started for {out_file}...")
     logger.info(f"Download started for {out_file}...")
-
     if os.path.isfile(os.path.join(f"{out_dir}", f"{out_file}")):
-        # skip file if already exists
-        return 0, f"[{start}] Download skipped for {out_file}. File already exists!"
 
+        return 0, f"[{start}] Download skipped for {out_file}. File already exists!"
     else:
         try:
-            # main function where HLS download happens
+
             status, msg = dlClient.start_download(download_link)
         except Exception as e:
             status, msg = 1, str(e)
 
-        # remove target dirs if no files are downloaded
         dlClient._cleanup_out_dirs()
-
         end = get_current_time()
         if status != 0:
             return 1, f"[{end}] Download failed for {out_file}, with error: {msg}"
-
         end_epoch = int(time())
         download_time = pretty_time(end_epoch - start_epoch, fmt="h m s")
-
         return 2, f"[{end}] Download completed for {out_file} in {download_time}!"
 
 
 def batch_downloader(download_fn, links, dl_config, max_parallel_downloads):
-
     @threaded(
         max_parallel=max_parallel_downloads,
         thread_name_prefix="udb-",
@@ -219,20 +199,19 @@ def batch_downloader(download_fn, links, dl_config, max_parallel_downloads):
         result = download_fn(link, dl_config)
         print("results from batch-downloader", result)
         return result
-
     dl_status = call_downloader(links.values(), dl_config)
-    print("dl_status", dl_status)
-    # show download status at the end, so that progress bars are not disturbed
-    print("\033[K")  # Clear to the end of line
-    # width = os.get_terminal_size().columns
+    logger.debug(f"Download status: {dl_status}")
+    # while not all(isinstance(result, tuple) and result[0] in {0, 1} for result in dl_status):
+    #     total_progress = sum(dl[1].get_progress_percentage() for dl in dl_status if isinstance(dl, tuple) and dl[0] == 2)
+    #     avg_progress = total_progress / len(dl_status)
+    #     print(f"Overall Progress: {avg_progress:.2f}%")
+    #     _time.sleep(10)
 
-    status_str = f"Download Summary:"
-    for status in dl_status:
-        status_str += f"\n{status}"
-    # Once chatGPT suggested me to reduce 'print' usage as it involves IO to stdout
-    print(status_str)
-    # strip ANSI before writing to log file
-    logger.info((status_str))
+
+    # status_str = f"Download Summary:"
+    # for status in dl_status:
+    #     status_str += f"\n{status}"
+
     return dl_status
 
 
@@ -244,7 +223,7 @@ class DramaBot:
         self.semaphore = asyncio.Semaphore(16)
 
     def reset(self):
-        # print("Reset method called")
+        logger.info("Resetting DramaBot...")
         self.waiting_for_ep_range = False
         self.ep_range = None
         self.ep_start = None
@@ -259,31 +238,32 @@ class DramaBot:
         self.search_results_message_id = None
         self.search_id = int(_time.time())
         self.search_results = {}
-
-    async def drama(self, client, message):
-        # print(base_client.udb_episode_dict)
         self.DCL.udb_episode_dict.clear()
         base_client.udb_episode_dict.clear()
-        # print(self.target_dl_links)
+
+    async def drama(self, client, message):
+        self.reset()
+        global ongoing_task
         global search_res_msg
         global waiting_for_search_drama
-        self.reset()
         keyword = " ".join(message.command[1:])
         if not keyword.strip():
             await message.reply_text("No search keyword provided.")
+            ongoing_task = False
             return
         try:
             search_results = self.DCL.search(keyword)
-            # print("search reslut type",type(search_results))
+            logger.info(f"Search results: {search_results}")
             self.search_results = {
                 i + 1: result for i, result in enumerate(search_results.values())
             }
         except Exception as e:
-            print(f"An error occurred during search: {e}")
+            logger.error(f"An error occurred during search: {e}")
             await message.reply_text("An error occurred during the search.")
             return
         if not self.search_results:
             await message.reply_text("No results found.")
+            ongoing_task = False
             return
         keyboard = [
             [
@@ -301,7 +281,7 @@ class DramaBot:
         waiting_for_search_drama = True
 
     async def on_callback_query(self, client, callback_query):
-
+        global ongoing_task
         global search_res_msg
         global waiting_for_search_drama
         search_id, series_index = map(int, callback_query.data.split(":"))
@@ -320,40 +300,56 @@ class DramaBot:
         self.series_title = None
         self.episode_prefix = None
         episodes = []
-        logger.debug(f"{series_index = }")
+        logger.info(f"{series_index=}")
         self.target_series = self.search_results[series_index]
-        # print('target_series type',type(self.target_series))
         title = self.target_series["title"]
-        logger.debug(f"{title= }")
-        episodes = self.DCL.fetch_episodes_list(self.target_series)
-        # print('episodes type',type(episodes))
-        episodes_message = self.DCL.show_episode_results(
-            episodes, (self.ep_start, self.ep_end)
-        )
+        logger.info(f"{title=}")
+        try:
+            episodes = self.DCL.fetch_episodes_list(self.target_series)
+        except Exception as e:
+            logger.error(f"An error occurred during episode fetch: {e}")
+            await callback_query.message.reply_text(
+                "An error occurred during episode fetch."
+            )
+            ongoing_task = False
+            return
+        try:
+            episodes_message = self.DCL.show_episode_results(
+                episodes, (self.ep_start, self.ep_end)
+            )
+        except Exception as e:
+            logger.error(f"An error occurred during episode fetch: {e}")
+            await callback_query.message.reply_text(
+                "An error occurred during episode fetch."
+            )
+            ongoing_task = False
+            return
         global ep_message_ids
         ep_message_ids = []
         if episodes_message:
             messages = [
-                episodes_message[i : i + 4096]
+                episodes_message[i: i + 4096]
                 for i in range(0, len(episodes_message), 4096)
             ]
             for message in messages:
-                logger.debug("Getting episodes")
+                logger.info("Getting episodes")
                 ep_msg = await callback_query.message.reply_text(message)
                 ep_message_ids.append(ep_msg.id)
         else:
             await callback_query.message.reply_text("No episodes found.")
-
         await self.get_ep_range(client, callback_query.message, "Enter", None)
         waiting_for_search_drama = False
 
     async def on_message(self, client, message):
-        # global ep_msg_id
         global ep_message_ids
         global ep_range_msg
-        for ep_msg_id in ep_message_ids:
-            await app.delete_messages(message.chat.id, ep_msg_id)
-        await app.delete_messages(message.chat.id, ep_range_msg.id)
+        global ongoing_task
+        try:
+            for ep_msg_id in ep_message_ids:
+                await app.delete_messages(message.chat.id, ep_msg_id)
+            await app.delete_messages(message.chat.id, ep_range_msg.id)
+        except:
+            pass
         if self.waiting_for_ep_range:
             self.waiting_for_ep_range = False
             self.ep_range = message.text or "all"
@@ -362,32 +358,28 @@ class DramaBot:
                 self.mode = "all"
             else:
                 self.mode = "custom"
-            logger.debug(f"Selected episode range ({self.mode = }): {self.ep_range = }")
+            logger.info(f"Selected episode range ({self.mode=}): {self.ep_range=}")
             if self.ep_range.count("-") > 1:
                 logger.error("Invalid input! You must specify only one range.")
-                return  # get_ep_range(default_ep_range, mode, _episodes_predef)
-
+                return
             self.ep_start, self.ep_end, self.specific_eps = 0, 0, []
             for ep_range in self.ep_range.split(","):
-                if "-" in ep_range:  # process the range if '-' is found
+                if "-" in ep_range:
                     ep_range = ep_range.split("-")
                     if ep_range[0] == "":
-                        ep_range[0] = self.default_ep_range.split("-")[
-                            0
-                        ]  # if not set, set episode start to default start number
+                        ep_range[0] = self.default_ep_range.split("-")[0]
                     if ep_range[1] == "":
-                        ep_range[1] = self.default_ep_range.split("-")[
-                            1
-                        ]  # if not set, set episode end to default end number
-
+                        ep_range[1] = self.default_ep_range.split("-")[1]
                     self.ep_start, self.ep_end = map(float, ep_range)
                 else:
-                    self.specific_eps.append(
-                        float(ep_range)
-                    )  # if '-' is not found, then it's a specific episode number
-
-            episodes = self.DCL.fetch_episodes_list(self.target_series)
-            # print('episodes type',type(episodes))
+                    self.specific_eps.append(float(ep_range))
+            try:
+                episodes = self.DCL.fetch_episodes_list(self.target_series)
+            except Exception as e:
+                logger.error(f"An error occurred during episode fetch: {e}")
+                await message.reply_text("An error occurred during episode fetch.")
+                ongoing_task = False
+                return
             await self.show_episode_links(
                 client, message, episodes, self.ep_start, self.ep_end, self.specific_eps
             )
@@ -397,19 +389,29 @@ class DramaBot:
     ):
         global select_res_msg
         global ep_infos_msg_id
-        message_patience = await message.reply_text("Fetching episode links, Be patience😊😊😊...")
-        self.episode_links, self.ep_infos = self.DCL.fetch_episode_links(
-            episodes, ep_start, ep_end, specific_eps
+        global ongoing_task
+        message_patience = await message.reply_text(
+            "Fetching episode links, Be patience😊😊😊..."
         )
-        # print('episode_links',self.episode_links)
-        # print('ep_infos',self.ep_infos)
-        await app.delete_messages(message.chat.id, user_ep_range)
-        await app.delete_messages(message.chat.id, message_patience.id)
-        info_text = '\n'.join(self.ep_infos)
-        info_texts = [info_text[i:i+4096] for i in range(0, len(info_text), 4096)]
+        try:
+            self.episode_links, self.ep_infos = self.DCL.fetch_episode_links(
+                episodes, ep_start, ep_end, specific_eps
+            )
+        except Exception as e:
+            logger.error(f"An error occurred during episode fetch: {e}")
+            await message.reply_text("An error occurred during episode fetch.")
+            ongoing_task = False
+            return
+        try:
+            await app.delete_messages(message.chat.id, user_ep_range)
+            await app.delete_messages(message.chat.id, message_patience.id)
+        except:
+            pass
+        info_text = "\n".join(self.ep_infos)
+        info_texts = [info_text[i: i + 4096]
+                      for i in range(0, len(info_text), 4096)]
         ep_infos_msg_id = []
         for info in info_texts:
-            # print('ep info',info)
             ep_info_msg = await message.reply_text(info)
             ep_infos_msg_id.append(ep_info_msg.id)
         valid_resolutions = []
@@ -420,18 +422,11 @@ class DramaBot:
                 break
         else:
             valid_resolutions = ["360", "480", "720", "1080"]
-        # logger.debug(f'Set output names based on {self.target_series['title']}')
         self.series_title, self.episode_prefix = self.DCL.set_out_names(
             self.target_series
         )
-        # print('series_title',self.series_title)
-        # print('episode_prefix',self.episode_prefix)
-        # logger.debug(f'{self.series_title = }, {self.episode_prefix = }')
-        downloader_config["download_dir"] = os.path.join(
-            f"{downloader_config['download_dir']}", f"{self.series_title}"
-        )
-        # logger.debug(f"Final download dir: {downloader_config['download_dir']}")
-        logger.debug(f"{valid_resolutions = }")
+        downloader_config["download_dir"] = os.path.join( f"{downloader_config['download_dir']}", f"{self.series_title}")
+        logger.info(f"{valid_resolutions=}")
         keyboard = InlineKeyboardMarkup(
             [
                 [
@@ -451,10 +446,6 @@ class DramaBot:
         global waiting_for_user_ep_range
         if _episodes_predef:
             self.ep_range = _episodes_predef
-            # try:
-            #     self.ep_start, self.ep_end = map(float, self.ep_range.split("-"))
-            # except ValueError as ve:
-            #     self.ep_start = self.ep_end = float(self.ep_range)
         else:
             ep_range_msg = await message.reply_text(
                 f"\n{mode} episodes to download (ex: 1-16): "
@@ -468,17 +459,13 @@ class DramaBot:
         global ep_infos_msg_id
         ep_details_msg_ids = []
         global proceed_msg
+        global ongoing_task
         await callback_query.message.edit_reply_markup(reply_markup=None)
         await app.delete_messages(callback_query.message.chat.id, select_res_msg.id)
-        # print('ep_details_msg_ids',ep_details_msg_ids)
-        # print('select_res_msg',select_res_msg.id)
         for ep_info_msg_id in ep_infos_msg_id:
-            # print('ep_info_msg_id',ep_info_msg_id)
             await app.delete_messages(callback_query.message.chat.id, ep_info_msg_id)
         search_id, resint = map(int, callback_query.data.split(":"))
         resolution = str(resint)
-        # print('search_id',search_id)
-        # print('resolution',resolution)
         if search_id != self.search_id:
             await client.answer_callback_query(
                 callback_query.id,
@@ -486,18 +473,29 @@ class DramaBot:
                 show_alert=True,
             )
             return
-        #print("episode_links", self.episode_links)
-        self.target_dl_links = self.DCL.fetch_m3u8_links(
-            self.episode_links, resolution, self.episode_prefix
-        )
-        #print("target_dl_links", self.target_dl_links)
+        try:
+            self.target_dl_links = self.DCL.fetch_m3u8_links(
+                self.episode_links, resolution, self.episode_prefix
+            )
+        except Exception as e:
+            logger.error(f"An error occurred during episode fetch: {e}")
+            await callback_query.message.reply_text(
+                "An error occurred during episode fetch."
+            )
+            ongoing_task = False
+            return
         all_ep_details_text = ""
         for ep, details in self.target_dl_links.items():
             episode_name = details["episodeName"]
             episode_subs = details["episodeSubs"]
-            ep_details_text = f"Episode {ep}:\nName: {episode_name}\nSubs: {episode_subs}"
+            ep_details_text = (
+                f"Episode {ep}:\nName: {episode_name}\nSubs: {episode_subs}"
+            )
             all_ep_details_text += ep_details_text
-        all_ep_details_texts = [all_ep_details_text[i:i+4096] for i in range(0, len(all_ep_details_text), 4096)]
+        all_ep_details_texts = [
+            all_ep_details_text[i: i + 4096]
+            for i in range(0, len(all_ep_details_text), 4096)
+        ]
         for text in all_ep_details_texts:
             ep_details_msg = await callback_query.message.reply_text(text)
             ep_details_msg_ids.append(ep_details_msg.id)
@@ -508,7 +506,7 @@ class DramaBot:
                 if v.get("downloadLink") is not None
             ]
         )
-        logger.debug("Links Found!!")
+        logger.info("Links Found!!")
         msg = f"Episodes available for download [{available_dl_count}/{len(self.target_dl_links)}].Proceed to download?"
         keyboard = InlineKeyboardMarkup(
             [
@@ -522,7 +520,6 @@ class DramaBot:
                 ]
             ]
         )
-
         proceed_msg = await callback_query.message.reply_text(
             msg, reply_markup=keyboard
         )
@@ -532,260 +529,676 @@ class DramaBot:
                 "No episodes available to download! Exiting."
             )
             await callback_query.message.edit_reply_markup(reply_markup=None)
+            ongoing_task = False
             return
-        # await callback_query.message.edit_reply_markup(reply_markup=None)
 
     async def on_callbackquery_download(self, client, callback_query):
-        # semaphore = asyncio.Semaphore(16)
-
-        async def send_document(
-            client,
-            chat_id,
-            document,
-            progress,
-            progress_args,
-            thumb=None,
-            caption=None,
-            parse_mode=None,
-        ):
-            async with self.semaphore:
-                #print(f"Uploading {document} with {os.getpid()}")
-                filename = os.path.basename(document)
-                logger.debug(f"Uploading {filename} with {os.getpid()}")
-                await asyncio.sleep(1)
-                message = await client.send_message(chat_id, f"Starting upload of {filename}")
-                try:
-                    return await client.send_document(
-                        chat_id,
-                        document=document,
-                        progress=progress,
-                        progress_args=(message,*progress_args,),
-                        thumb=thumb,
-                        caption=caption,
-                        parse_mode=parse_mode,
-                    )
-                finally:
-                    
-                    await client.delete_messages(chat_id, message.id)
-        
-        search_id, action = callback_query.data.split(":")
-        int_search_id = int(search_id)
-        if int_search_id != self.search_id:
-            await client.answer_callback_query(
-                callback_query.id,
-                "Cannot download previous selections",
-                show_alert=True,
-            )
-            return
-        if action == "download_yes":
-            await callback_query.message.edit_reply_markup(reply_markup=None)
-            await app.delete_messages(callback_query.message.chat.id, proceed_msg.id)
-
-            for ep_details_msg_id in ep_details_msg_ids:
-                # print('ep_details_msg_id',ep_details_msg_id)
-                await app.delete_messages(
-                    callback_query.message.chat.id, ep_details_msg_id
-                )
-            start_msg = await callback_query.message.reply_text(
-                "Downloading episodes..."
-            )
-            logger.debug("Downloading episodes...")
-            download_results = batch_downloader(
-                downloader,
-                self.target_dl_links,
-                downloader_config,
-                max_parallel_downloads,
-            )
-            for status, message in download_results:
-                if status == 0:  # File Already Exist
+        global telegram_upload
+        global waiting_for_mirror
+        global waiting_for_zip_mirror
+        global ongoing_task
+        if telegram_upload:
+            async def send_document(
+                client,
+                chat_id,
+                document,
+                progress,
+                progress_args,
+                thumb=None,
+                caption=None,
+                parse_mode=None,
+            ):
+                async with self.semaphore:
+                    filename = os.path.basename(document)
+                    logger.debug(f"Uploading {filename} with {os.getpid()}")
                     await asyncio.sleep(1)
-                    await callback_query.message.reply_text(message)
-                elif status == 2:  # Download complete
-                    await callback_query.message.reply_text(message)
-                elif status == 3:  # Unknown Download Type
-                    await callback_query.message.reply_text(message)
-                elif status == 1:  # Download Failed
-                    await callback_query.message.reply_text(message)
-            await client.delete_messages(
-                callback_query.message.chat.id, start_msg.id
-            )  # Delete the start message
+                    message = await client.send_message(
+                        chat_id, f"Starting upload of {filename}"
+                    )
+                    try:
+                        return await client.send_document(
+                            chat_id,
+                            document=document,
+                            progress=progress,
+                            progress_args=(
+                                message,
+                                *progress_args,
+                            ),
+                            thumb=thumb,
+                            caption=caption,
+                            parse_mode=parse_mode,
+                        )
+                    finally:
+                        await client.delete_messages(chat_id, message.id)
+            search_id, action = callback_query.data.split(":")
+            int_search_id = int(search_id)
+            if int_search_id != self.search_id:
+                await client.answer_callback_query(
+                    callback_query.id,
+                    "Cannot download previous selections",
+                    show_alert=True,
+                )
+                return
+            if action == "download_yes":
+                await callback_query.message.edit_reply_markup(reply_markup=None)
+                await app.delete_messages(
+                    callback_query.message.chat.id, proceed_msg.id
+                )
+                for ep_details_msg_id in ep_details_msg_ids:
+                    await app.delete_messages(
+                        callback_query.message.chat.id, ep_details_msg_id
+                    )
+                start_msg = await callback_query.message.reply_text(
+                    "Downloading episodes..."
+                )
+                logger.info("Downloading episodes...")
+                download_results = batch_downloader(
+                    downloader,
+                    self.target_dl_links,
+                    downloader_config,
+                    max_parallel_downloads,
+                )
+                status_message_ids = []
+                for status, message in download_results:
+                    sent_message = await callback_query.message.reply_text(message)
+                    status_message_ids.append(sent_message.id)
+                await client.delete_messages(
+                    callback_query.message.chat.id, start_msg.id
+                )
+                directory = downloader_config["download_dir"]
+                last_update_times = {}
 
-            directory = downloader_config["download_dir"]
+                async def progress(current, total, message, filename):
+                    now = _time.time()
+                    pct = current * 100 / total
+                    pct_str = f"{filename} : {pct:.1f}%"
 
-            # print(f"Downloaded files are saved in {directory}")
-            # print("Files are being sent to the user...")
-            last_update_times = {}
-
-            async def progress(current, total, message, filename):
-                now = _time.time()
-                progress_text = f"{filename} : {current * 100 / total:.1f}%"
-                if message.text != progress_text:
-                    if filename not in last_update_times or now - last_update_times[filename] > 10:
-                        try:
-                            await message.edit_text(progress_text)
-                            last_update_times[filename] = now
-                        except pyrogram.errors.exceptions.bad_request_400.MessageNotModified:
-                            pass
-                await asyncio.sleep(1)
-
-            try:
-
-                # message = await client.send_message(
-                #     callback_query.message.chat.id, "Starting upload..."
-                # )
-                #print("Starting upload...")
-                upload_tasks = []
-                for filename in os.listdir(directory):
-                    filepath = os.path.join(directory, filename)
-                    if os.path.isfile(filepath) and filename.endswith(".mp4"):
-                        media_info = MediaInfo.parse(filepath)
-                        for track in media_info.tracks:
-                            print(
-                                f"Track type: {track.track_type}, Duration: {track.duration}"
-                            )
-                            if track.track_type == "Video":
-                                milliseconds = track.duration
-                                if milliseconds is not None:
-                                    seconds, milliseconds = divmod(milliseconds, 1000)
-                                    minutes, seconds = divmod(seconds, 60)
-                                    hours, minutes = divmod(minutes, 60)
-                                    if hours > 0:
-                                        duration = f"{hours}h{minutes}m{seconds}s"
-                                    elif minutes > 0:
-                                        duration = f"{minutes}m{seconds}s"
-                                    else:
-                                        duration = (
-                                            f"{seconds}s"  # duration in milliseconds
+                    pct = float(str(pct).strip("%"))
+                    p = min(max(pct, 0), 100)
+                    cFull = int(p // 8)
+                    cPart = int(p % 8 - 1)
+                    p_str = "■" * cFull
+                    if cPart >= 0:
+                        p_str += ["▤", "▥", "▦", "▧", "▨", "▩", "■"][cPart]
+                    p_str += "□" * (12 - cFull)
+                    progress_bar = f"[{p_str}]"
+                    progress_text = f"{pct_str} {progress_bar}"
+                    if message.text != progress_text:
+                        if (
+                            filename not in last_update_times
+                            or now - last_update_times[filename] > 10
+                        ):
+                            try:
+                                await message.edit_text(progress_text)
+                                last_update_times[filename] = now
+                            except (
+                                pyrogram.errors.exceptions.bad_request_400.MessageNotModified
+                            ):
+                                pass
+                    await asyncio.sleep(1)
+                try:
+                    upload_tasks = []
+                    for filename in os.listdir(directory):
+                        filepath = os.path.join(directory, filename)
+                        if os.path.isfile(filepath) and filename.endswith(".mp4"):
+                            media_info = MediaInfo.parse(filepath)
+                            for track in media_info.tracks:
+                                if track.track_type == "Video":
+                                    milliseconds = track.duration
+                                    if milliseconds is not None:
+                                        seconds, milliseconds = divmod(
+                                            milliseconds, 1000
                                         )
-                                else:
-                                    duration = "Unknown"
-                                file_size = os.path.getsize(filepath)
-                                print(f"File size: {file_size}")  # file size in bytes
-                                file_size_con = convert_size(file_size)
-                                break
-                            # convert_size(file_size)
+                                        minutes, seconds = divmod(seconds, 60)
+                                        hours, minutes = divmod(minutes, 60)
+                                        if hours > 0:
+                                            duration = f"{hours}h{minutes}m{seconds}s"
+                                        elif minutes > 0:
+                                            duration = f"{minutes}m{seconds}s"
+                                        else:
 
-                        doc = dbmongo.find_one()
-                        encoded_image = doc["thumbnail"]
-                        caption_db = doc["caption"]
-                        try:
-                            caption_db.format(
-                                filename="test", size="test", duration="test"
-                            )
-                        except KeyError as e:
-                            print(f"Caption contains unrecognized format: {e}")
-                            await app.send_message(
-                                callback_query.message.chat.id,
-                                f"Caption contains unrecognized format: {e}. Removing the format.",
-                            )
-                            caption_db = re.sub(r"\{[^}]*\}", "", caption_db)
-                        if encoded_image is not None and caption_db is None:
-                            with open("thumbnail.jpg", "wb") as f:
-                                f.write(encoded_image)
+                                            duration = f"{seconds}s"
+                                    else:
+                                        duration = "Unknown"
+                                    file_size = os.path.getsize(filepath)
+                                    print(f"File size: {file_size}")
+                                    file_size_con = convert_size(file_size)
+                                    break
+                            doc = dbmongo.find_one()
+                            encoded_image = doc["thumbnail"]
+                            caption_db = doc["caption"]
+                            try:
+                                caption_db.format(
+                                    filename="test", size="test", duration="test"
+                                )
+                            except KeyError as e:
+                                print(
+                                    f"Caption contains unrecognized format: {e}")
+                                await app.send_message(
+                                    callback_query.message.chat.id,
+                                    f"Caption contains unrecognized format: {e}. Removing the format.",)
+                                caption_db = re.sub(
+                                    r"\{[^}]*\}", "", caption_db)
+                            if encoded_image is not None and caption_db is None:
+                                with open("thumbnail.jpg", "wb") as f:
+                                    f.write(encoded_image)
+                                    task = send_document(
+                                        client,
+                                        callback_query.from_user.id,
+                                        document=filepath,
+                                        progress=progress,
+                                        progress_args=(
+                                            os.path.basename(filename),),
+                                        thumb="thumbnail.jpg",
+                                    )
+                                    upload_tasks.append(
+                                        asyncio.create_task(task))
+                            elif encoded_image is None and caption_db is None:
                                 task = send_document(
                                     client,
                                     callback_query.from_user.id,
                                     document=filepath,
                                     progress=progress,
-                                    progress_args=(os.path.basename(filename),),
-                                    thumb="thumbnail.jpg",
+                                    progress_args=(
+                                        os.path.basename(filename),),
                                 )
                                 upload_tasks.append(asyncio.create_task(task))
-                        elif encoded_image is None and caption_db is None:
-                            task = send_document(
-                                client,
-                                callback_query.from_user.id,
-                                document=filepath,
-                                progress=progress,
-                                progress_args=(os.path.basename(filename),),
-                            )
-                            upload_tasks.append(asyncio.create_task(task))
-                        elif encoded_image is not None and caption_db is not None:
-                            file_name = html.escape(os.path.basename(filepath))
-                            caption = caption_db.format(
-                                filename=html.escape(file_name),
-                                size=html.escape(file_size_con),
-                                duration=html.escape(duration),
-                            )
-                            with open("thumbnail.jpg", "wb") as f:
-                                f.write(encoded_image)
+                            elif encoded_image is not None and caption_db is not None:
+                                file_name = html.escape(
+                                    os.path.basename(filepath))
+                                caption = caption_db.format(
+                                    filename=html.escape(file_name),
+                                    size=html.escape(file_size_con),
+                                    duration=html.escape(duration),
+                                )
+                                with open("thumbnail.jpg", "wb") as f:
+                                    f.write(encoded_image)
+                                    task = send_document(
+                                        client,
+                                        callback_query.from_user.id,
+                                        document=filepath,
+                                        progress=progress,
+                                        progress_args=(
+                                            os.path.basename(filename),),
+                                        thumb="thumbnail.jpg",
+                                        caption=caption,
+                                        parse_mode=ParseMode.HTML,
+                                    )
+                                    upload_tasks.append(
+                                        asyncio.create_task(task))
+                            elif encoded_image is None and caption_db is not None:
+                                file_name = html.escape(
+                                    os.path.basename(filepath))
+                                caption = caption_db.format(
+                                    filename=html.escape(file_name),
+                                    size=html.escape(file_size_con),
+                                    duration=html.escape(duration),
+                                )
                                 task = send_document(
                                     client,
                                     callback_query.from_user.id,
                                     document=filepath,
                                     progress=progress,
-                                    progress_args=(os.path.basename(filename),),
-                                    thumb="thumbnail.jpg",
+                                    progress_args=(
+                                        os.path.basename(filename),),
                                     caption=caption,
                                     parse_mode=ParseMode.HTML,
                                 )
                                 upload_tasks.append(asyncio.create_task(task))
-                        elif encoded_image is None and caption_db is not None:
-                            file_name = html.escape(os.path.basename(filepath))
-                            caption = caption_db.format(
-                                filename=html.escape(file_name),
-                                size=html.escape(file_size_con),
-                                duration=html.escape(duration),
-                            )
-                            task = send_document(
-                                client,
-                                callback_query.from_user.id,
-                                document=filepath,
-                                progress=progress,
-                                progress_args=(os.path.basename(filename),),
-                                caption=caption,
-                                parse_mode=ParseMode.HTML,
-                            )
-                            upload_tasks.append(asyncio.create_task(task))
-                            # ... previous code where you add tasks to upload_tasks ...
-
-                            # Start the uploads and handle them as they complete
-
-                try:
-                    await asyncio.gather(*upload_tasks)
-                except Exception as e:
-                    print(f"An error occurred while sending files: {e}")
-                    await app.send_message(
-                        callback_query.message.chat.id,
-                        f"An error occurred while sending files.{e}",
-                    )
-
-                    # ... rest of your code ...
-                # await asyncio.gather(*upload_tasks)        #await app.delete_messages(callback_query.message.chat.id, message.id)
-                self.target_dl_links = {}
-                self.target_series = None
-                self.search_results = {}
-            except Exception as e:
-                print(f"An error occurred while sending files: {e}")
-                await app.send_message(
-                    callback_query.message.chat.id,
-                    "An error occurred while sending files.",
-                )
-            finally:
-                if os.path.exists(directory):
                     try:
-                        print(f"Deleted {directory}")
-                        shutil.rmtree(directory)
+                        await asyncio.gather(*upload_tasks)
+                    except Exception as e:
+                        logger.error(
+                            f"An error occurred while sending files: {e}")
                         await app.send_message(
                             callback_query.message.chat.id,
-                            "All Episodes Uploaded.",
+                            f"An error occurred while sending files.",
                         )
-                    except Exception as e:
-                        print(f"An error occurred while deleting {directory}: {e}")
-
-            # print("downloader message", downloader)
-        else:
-            await callback_query.message.reply_text("Download cancelled.")
-            await callback_query.message.edit_reply_markup(reply_markup=None)
-            await app.delete_messages(callback_query.message.chat.id, proceed_msg.id)
-            for ep_details_msg_id in ep_details_msg_ids:
+                    finally:
+                        self.reset()
+                        telegram_upload = False
+                        ongoing_task = False
+                except Exception as e:
+                    logger.error(f"An error occurred while sending files: {e}")
+                    await app.send_message(
+                        callback_query.message.chat.id,
+                        "An error occurred while sending files.",
+                    )
+                    ongoing_task = False
+                    telegram_upload = False
+                finally:
+                    if os.path.exists(directory):
+                        try:
+                            shutil.rmtree(directory)
+                            logger.info(f"Deleted {directory}")
+                            ongoing_task = False
+                            telegram_upload = False
+                            await app.send_message(
+                                callback_query.message.chat.id,
+                                "All Episodes Uploaded.",
+                            )
+                            for status_msg_id in status_message_ids:
+                                await app.delete_messages(
+                                    callback_query.message.chat.id, status_msg_id
+                                )
+                                await asyncio.sleep(1)
+                        except Exception as e:
+                            logger.error(f"An error occurred while deleting {directory}: {e}")
+                            await app.send_message(
+                                callback_query.message.chat.id,f"An error occurred while deleting {directory}.",)
+                            ongoing_task = False
+                            telegram_upload = False
+            else:
+                await callback_query.message.reply_text("Download cancelled.")
+                await callback_query.message.edit_reply_markup(reply_markup=None)
                 await app.delete_messages(
-                    callback_query.message.chat.id, ep_details_msg_id
+                    callback_query.message.chat.id, proceed_msg.id
                 )
-            self.target_dl_links = {}
-            self.target_series = None
-            self.search_results = {}
-            logger.debug("Download cancelled.")
+                for ep_details_msg_id in ep_details_msg_ids:
+                    await app.delete_messages(
+                        callback_query.message.chat.id, ep_details_msg_id
+                    )
+                self.reset()
+                logger.info("Download cancelled.")
+                ongoing_task = False
+                telegram_upload = False
+                try:
+                    if os.path.exists(directory):
+                        shutil.rmtree(directory)
+                except Exception as e:
+                    logger.error(f"An error occurred while deleting {directory}: {e}")
+        elif waiting_for_mirror:
+            search_id, action = callback_query.data.split(":")
+            int_search_id = int(search_id)
+            if int_search_id != self.search_id:
+                await client.answer_callback_query(
+                    callback_query.id,
+                    "Cannot download previous selections",
+                    show_alert=True,
+                )
+                return
+            if action == "download_yes":
+                await callback_query.message.edit_reply_markup(reply_markup=None)
+                await app.delete_messages(
+                    callback_query.message.chat.id, proceed_msg.id
+                )
+                for ep_details_msg_id in ep_details_msg_ids:
+                    await app.delete_messages(
+                        callback_query.message.chat.id, ep_details_msg_id
+                    )
+                start_msg = await callback_query.message.reply_text(
+                    "Downloading episodes..."
+                )
+                logger.debug("Downloading episodes...")
+                download_results = batch_downloader(
+                    downloader,
+                    self.target_dl_links,
+                    downloader_config,
+                    max_parallel_downloads,
+                )
+                status_message_ids = []
+                for status, message in download_results:
+                    sent_message = await callback_query.message.reply_text(message)
+                    status_message_ids.append(sent_message.id)
+                await client.delete_messages(
+                    callback_query.message.chat.id, start_msg.id
+                )
+                directory = downloader_config["download_dir"]
+
+                def get_progress_bar_string(pct):
+                    pct = float(str(pct).strip("%"))
+                    p = min(max(pct, 0), 100)
+                    cFull = int(p // 8)
+                    cPart = int(p % 8 - 1)
+                    p_str = "■" * cFull
+                    if cPart >= 0:
+                        p_str += ["▤", "▥", "▦", "▧", "▨", "▩", "■"][cPart]
+                    p_str += "□" * (12 - cFull)
+                    return f"[{p_str}]"
+
+                async def rclone_copy(filepath, upload_msg, filename):
+                    cmd = [
+                        "rclone",
+                        "copy",
+                        f"--config={RCLONE_CONF_PATH}rclone.conf",
+                        filepath,
+                        f"{DEFAULT_RCLONE_PATH}",
+                        "-P",
+                    ]
+                    logger.debug(cmd)
+                    process = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    progress_regex = re.compile(
+                        r"Transferred:\s+([\d.]+\s*\w+)\s+/\s+([\d.]+\s*\w+),\s+([\d.]+%)\s*,\s+([\d.]+\s*\w+/s),\s+ETA\s+([\dwdhms]+)"
+                    )
+                    last_progress = None
+                    update_interval = 10
+                    last_update_time = _time.time()
+                    while True:
+                        line = await process.stdout.readline()
+                        if not line:
+                            break
+                        line = line.decode().strip()
+                        print("lines", line)
+                        match = progress_regex.findall(line)
+                        if match:
+                            transferred, total, percent, speed, eta = match[0]
+                            progress_bar = get_progress_bar_string(percent)
+                            current_progress = f"Transferred: {transferred}, Total: {total}, Percent: {percent}, Speed: {speed}, ETA: {eta}"
+                            if current_progress != last_progress:
+                                if _time.time() - last_update_time >= update_interval:
+                                    try:
+                                        await app.edit_message_text(
+                                            callback_query.message.chat.id,
+                                            upload_msg.id,
+                                            f"Upload progress of {filename}: {progress_bar}Transferred {transferred} out of Total {total} {percent} ETA: {eta} Speed: {speed}",)
+                                        last_update_time = _time.time()
+                                    except pyrogram.errors.MessageNotModified:
+                                        pass
+                                last_progress = current_progress
+                    await process.wait()
+                    if process.returncode != 0:
+                        logger.debug(f"Error copying file {filepath}")
+                    else:
+                        logger.debug(f"Successfully copied file {filepath}")
+                    return process.returncode
+
+                async def upload_files(directory):
+                    global waiting_for_mirror
+                    global ongoing_task
+                    try:
+                        files = [
+                            os.path.join(directory, filename)
+                            for filename in os.listdir(directory)
+                            if os.path.isfile(os.path.join(directory, filename))
+                            and filename.endswith(".mp4")
+                        ]
+                        semaphore = asyncio.Semaphore(16)
+
+                        async def upload_file(filepath):
+                            async with semaphore:
+                                filename = os.path.basename(filepath)
+                                upload_msg = await app.send_message(
+                                    callback_query.message.chat.id,
+                                    f"Starting upload of {os.path.basename(filepath)}...",)
+                                return_code = await rclone_copy(
+                                    filepath, upload_msg, filename
+                                )
+                                if return_code == 0:
+                                    await app.edit_message_text(
+                                        callback_query.message.chat.id,
+                                        upload_msg.id,
+                                        f"Upload of {filename} is completed.",
+                                    )
+                                else:
+                                    await app.edit_message_text(
+                                        callback_query.message.chat.id,
+                                        upload_msg.id,
+                                        f"Error uploading {filename}.",
+                                    )
+
+                        tasks = [upload_file(filepath) for filepath in files]
+                        await asyncio.gather(*tasks)
+                        await app.send_message(
+                            callback_query.message.chat.id,
+                            "All uploads completed",
+                        )
+                        for status_msg_id in status_message_ids:
+                            await app.delete_messages(
+                                callback_query.message.chat.id, status_msg_id
+                            )
+                            await asyncio.sleep(1)
+                        shutil.rmtree(directory)
+                        waiting_for_mirror = False
+                        ongoing_task = False
+                    except Exception as e:
+                        logger.error(f"An error occurred while uploading files: {e}")
+                        await app.send_message(
+                            callback_query.message.chat.id,
+                            "An error occurred while uploading files.",
+                        )
+                        waiting_for_mirror = False
+                        ongoing_task = False
+                await upload_files(directory)
+            else:
+                await callback_query.message.reply_text("Download cancelled.")
+                await callback_query.message.edit_reply_markup(reply_markup=None)
+                await app.delete_messages(
+                    callback_query.message.chat.id, proceed_msg.id
+                )
+                for ep_details_msg_id in ep_details_msg_ids:
+                    await app.delete_messages(
+                        callback_query.message.chat.id, ep_details_msg_id
+                    )
+                self.reset()
+                waiting_for_mirror = False
+                ongoing_task = False
+                logger.debug("Download cancelled.")
+                try:
+                    if os.path.exists(directory):
+                        shutil.rmtree(directory)
+                except Exception as e:
+                    logger.error(f"An error occurred while deleting {directory}: {e}")
+        elif waiting_for_zip_mirror:
+            logger.info("Waiting for zip mirror")
+            search_id, action = callback_query.data.split(":")
+            int_search_id = int(search_id)
+            if int_search_id != self.search_id:
+                await client.answer_callback_query(
+                    callback_query.id,
+                    "Cannot download previous selections",
+                    show_alert=True,
+                )
+                return
+            if action == "download_yes":
+                await callback_query.message.edit_reply_markup(reply_markup=None)
+                await app.delete_messages(
+                    callback_query.message.chat.id, proceed_msg.id
+                )
+                for ep_details_msg_id in ep_details_msg_ids:
+                    await app.delete_messages(
+                        callback_query.message.chat.id, ep_details_msg_id
+                    )
+                start_msg = await callback_query.message.reply_text(
+                    "Downloading episodes..."
+                )
+                logger.debug("Downloading episodes...")
+                download_results = batch_downloader(
+                    downloader,
+                    self.target_dl_links,
+                    downloader_config,
+                    max_parallel_downloads,
+                )
+                status_message_ids = []
+                for status, message in download_results:
+                    sent_message = await callback_query.message.reply_text(message)
+                    status_message_ids.append(sent_message.id)
+                await client.delete_messages(
+                    callback_query.message.chat.id, start_msg.id
+                )
+                directory = downloader_config["download_dir"]
+                def format_size(size):
+    
+                    units = ['B', 'KB', 'MB', 'GB', 'TB']
+                    unit = 0
+                    while size >= 1024:
+                        size /= 1024
+                        unit += 1
+                    return f"{size:.2f} {units[unit]}"
+
+                async def send_progress(chat_id, message_id, filename, total, current):
+                    percent = round((current / total) * 100, 2)
+                    progress_bar = get_progress_bar_string(percent)
+                    total_str = format_size(total)
+                    current_str = format_size(current)
+                    await app.edit_message_text(
+                        chat_id,
+                        message_id,
+                        f"Zipping progress of {filename}: {progress_bar}{percent}% ({current_str} / {total_str})",)
+
+                async def create_zip_with_progress(src, dst, chat_id, message_id):
+                    zf = zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED)
+                    total_size = sum(
+                        os.path.getsize(os.path.join(dirpath, filename))
+                        for dirpath, dirnames, filenames in os.walk(src)
+                        for filename in filenames
+                    )
+                    current_size = 0
+                    last_update_time = _time.time()
+                    for dirpath, dirnames, filenames in os.walk(src):
+                        for filename in filenames:
+                            file_path = os.path.join(dirpath, filename)
+                            zf.write(file_path, os.path.relpath(
+                                file_path, src))
+                            current_size += os.path.getsize(file_path)
+                            if _time.time() - last_update_time >= 10:
+                                await send_progress(
+                                    chat_id,
+                                    message_id,
+                                    os.path.basename(dst),
+                                    total_size,
+                                    current_size,
+                                )
+                                last_update_time = _time.time()
+                    zf.close()
+
+                def get_progress_bar_string(pct):
+                    pct = float(str(pct).strip("%"))
+                    p = min(max(pct, 0), 100)
+                    cFull = int(p // 8)
+                    cPart = int(p % 8 - 1)
+                    p_str = "■" * cFull
+                    if cPart >= 0:
+                        p_str += ["▤", "▥", "▦", "▧", "▨", "▩", "■"][cPart]
+                    p_str += "□" * (12 - cFull)
+                    return f"[{p_str}]"
+
+                async def rclone_copy(filepath, upload_msg, filename):
+                    cmd = [
+                        "rclone",
+                        "copy",
+                        f"--config={RCLONE_CONF_PATH}rclone.conf",
+                        filepath,
+                        f"{DEFAULT_RCLONE_PATH}",
+                        "-P",
+                    ]
+                    process = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    progress_regex = re.compile(
+                        r"Transferred:\s+([\d.]+\s*\w+)\s+/\s+([\d.]+\s*\w+),\s+([\d.]+%)\s*,\s+([\d.]+\s*\w+/s),\s+ETA\s+([\dwdhms]+)"
+                    )
+                    last_progress = None
+                    update_interval = 10
+                    last_update_time = _time.time()
+                    while True:
+                        line = await process.stdout.readline()
+                        if not line:
+                            break
+                        line = line.decode().strip()
+                        print("lines", line)
+                        match = progress_regex.findall(line)
+                        if match:
+                            transferred, total, percent, speed, eta = match[0]
+                            progress_bar = get_progress_bar_string(percent)
+                            current_progress = f"Transferred: {transferred}, Total: {total}, Percent: {percent}, Speed: {speed}, ETA: {eta}"
+                            if current_progress != last_progress:
+                                if _time.time() - last_update_time >= update_interval:
+                                    try:
+                                        await app.edit_message_text(
+                                            callback_query.message.chat.id,
+                                            upload_msg.id,
+                                            f"Upload progress of {filename}: {progress_bar} Transferred {transferred} out of Total {total} {percent} ETA: {eta} Speed: {speed}",)
+                                        last_update_time = _time.time()
+                                    except pyrogram.errors.MessageNotModified:
+                                        pass
+                                last_progress = current_progress
+                    await process.wait()
+                    if process.returncode != 0:
+                        logger.error(f"Error copying file {filepath}")
+                    else:
+                        logger.info(f"Successfully copied file {filepath}")
+                    return process.returncode
+
+                async def upload_files(directory):
+                    global waiting_for_zip_mirror
+                    global ongoing_task
+                    try:
+                        zip_file = f"{directory}.zip"
+                        zip_msg = await app.send_message(
+                            callback_query.message.chat.id, f"Starting zipping..."
+                        )
+                        await create_zip_with_progress(
+                            directory,
+                            zip_file,
+                            callback_query.message.chat.id,
+                            zip_msg.id,
+                        )
+                        await app.edit_message_text(
+                            callback_query.message.chat.id,
+                            zip_msg.id,
+                            f"Zipping completed. Zip file: {os.path.basename(zip_file)}",)
+                        await app.delete_messages(
+                            callback_query.message.chat.id, zip_msg.id
+                        )
+                        upload_msg = await app.send_message(
+                            callback_query.message.chat.id, "Starting upload..."
+                        )
+                        return_code = await rclone_copy(
+                            zip_file, upload_msg, os.path.basename(zip_file)
+                        )
+                        if return_code == 0:
+                            await app.edit_message_text(
+                                callback_query.message.chat.id,
+                                upload_msg.id,
+                                f"Upload of {os.path.basename(zip_file)} is completed.",)
+                        else:
+                            await app.edit_message_text(
+                                callback_query.message.chat.id,
+                                upload_msg.id,
+                                f"Error uploading {os.path.basename(zip_file)}.",
+                            )
+                        try:
+                            for status_msg_id in status_message_ids:
+                                await app.delete_messages(
+                                    callback_query.message.chat.id, status_msg_id
+                                )
+                                await asyncio.sleep(1)
+                            shutil.rmtree(directory)
+                            os.remove(zip_file)
+                        except Exception as e:
+                            logger.error(
+                                f"An error occurred while deleting {directory}: {e}"
+                            )
+                        waiting_for_zip_mirror = False
+                        ongoing_task = False
+                    except Exception as e:
+                        logger.error(f"An error occurred: {e}")
+                await upload_files(directory)
+            else:
+                await callback_query.message.reply_text("Download cancelled.")
+                await callback_query.message.edit_reply_markup(reply_markup=None)
+                await app.delete_messages(
+                    callback_query.message.chat.id, proceed_msg.id
+                )
+                for ep_details_msg_id in ep_details_msg_ids:
+                    await app.delete_messages(
+                        callback_query.message.chat.id, ep_details_msg_id
+                    )
+                self.reset()
+                logger.info("Download cancelled.")
+                ongoing_task = False
+                waiting_for_zip_mirror = False
+                try:
+                    if os.path.exists(directory):
+                        shutil.rmtree(directory)
+                except Exception as e:
+                    logger.error(f"An error occurred while deleting {directory}: {e}")
 
 
 bot = DramaBot(config)
@@ -800,8 +1213,16 @@ async def start(client, message):
             BotCommand("start", "Start the bot"),
             BotCommand("drama", "Search and download dramas"),
             BotCommand(
+                "mirrordrama",
+                "Can use /md also.Search and download dramas and upload to cloud",
+            ),
+            BotCommand(
+                "zipmirrordrama",
+                "Can use /zmd also.Search and download dramas and upload to cloud as zip",
+            ),
+            BotCommand(
                 "usetting",
-                "can use /us also.Set thumbnail and caption for uploaded media",
+                "Can use /us also.Set thumbnail and caption for uploaded media",
             ),
             BotCommand("help", "Get help"),
         ]
@@ -809,7 +1230,8 @@ async def start(client, message):
     if message.from_user.id != OWNER_ID:
         keyboard = InlineKeyboardMarkup(
             [
-                [InlineKeyboardButton(text="Owner", url="https://t.me/gunaya001")],
+                [InlineKeyboardButton(
+                    text="Owner", url="https://t.me/gunaya001")],
                 [
                     InlineKeyboardButton(
                         text="Join Kdrama Request Group",
@@ -836,25 +1258,68 @@ async def start(client, message):
         return
     elif message.from_user.id == OWNER_ID:
         await message.reply_text(
-            "Download Dramas From https://myasiantv.ac/\n\nUse /drama {drama name} to search for a drama.",
+            "Download Dramas From https://myasiantv.ac/\n\nUse /help to get help.",
+            disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton(text="Owner", url="https://t.me/gunaya001")]]
+                [[InlineKeyboardButton(
+                    text="Owner", url="https://t.me/gunaya001")]]
             ),
         )
-
-        # await message.reply_text("Download Dramas From https://myasiantv.ac/\n\nUse /drama {drama name} to search for a drama.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(text='Owner', url='https://t.me/gunaya001')]]))
 
 
 @app.on_message(filters.command("drama") & filters.user(OWNER_ID))
 async def drama(client, message):
-    # print("TRiggered")
+    global ongoing_task
+    if ongoing_task:
+        await message.reply_text("Another task is ongoing. Please wait.")
+        return
+    global telegram_upload
+    ongoing_task = True
+    telegram_upload = True
+    await bot.drama(client, message)
+
+
+@app.on_message(
+    (filters.command("mirrordrama") | filters.command("md")) & filters.user(OWNER_ID)
+)
+async def mirrordrama(client, message):
+    if not DEFAULT_RCLONE_PATH or not RCLONE_CONF_PATH:
+        await message.reply_text("Cloud upload not configured.")
+        logger.info("No rclone path provided. Cloud upload won't work.")
+        return
+    global ongoing_task
+    if ongoing_task:
+        await message.reply_text("Another task is ongoing. Please wait.")
+        return
+    global waiting_for_mirror
+    waiting_for_mirror = True
+    ongoing_task = True
+    await bot.drama(client, message)
+
+
+@app.on_message(
+    (filters.command("zipmirrordrama") | filters.command("zmd"))
+    & filters.user(OWNER_ID)
+)
+async def zipmirrordrama(client, message):
+    if not DEFAULT_RCLONE_PATH or not RCLONE_CONF_PATH:
+        await message.reply_text("Cloud upload not configured.")
+        logger.info("No rclone path provided. Cloud upload won't work.")
+        return
+    global ongoing_task
+    if ongoing_task:
+        await message.reply_text("Another task is ongoing. Please wait.")
+        return
+    global waiting_for_zip_mirror
+    waiting_for_zip_mirror = True
+    ongoing_task = True
     await bot.drama(client, message)
 
 
 @app.on_message(filters.command("help") & filters.user(OWNER_ID))
 async def help(client, message):
     await message.reply_text(
-        "Download Dramas From https://myasiantv.ac/\n\nUse /drama {drama name} to search for a drama.\n\nUse /usetting to set thumbnail and caption for uploaded media.\nCaption has filterings for {filename}, {size}, {duration}.\n\nUse {filename} to display the filename, {size} to display the file size and {duration} to display the duration of the video in caption.\n\nCaption also supports HTML formatting.\n\nHTML formattings can be found here https://core.telegram.org/bots/api#html-style",
+        "Download Dramas From https://myasiantv.ac/\n\nUse /drama {drama name} to search for a drama.\n\nUse /md {drama name} or /mirrordrama {drama name} to upload to selected rclone drive.\n\nUse /zmd {drama name} or /zipmirordrama {drama name} to zip the downloaded dramas and upload them.\n\nUse /usetting to set thumbnail and caption for uploaded media.\nCaption has filterings for {filename}, {size}, {duration}.\n\nUse {filename} to display the filename, {size} to display the file size and {duration} to display the duration of the video in caption.\n\nCaption also supports HTML formatting.\n\nHTML formattings can be found here https://core.telegram.org/bots/api",
         disable_web_page_preview=True,
     )
 
@@ -862,7 +1327,7 @@ async def help(client, message):
 @app.on_message(
     (filters.command("usetting") | filters.command("us")) & filters.user(OWNER_ID)
 )
-async def thumb_without_reply(client, message):
+async def usetting(client, message):
     if dbmongo is None:
         await app.send_message(
             message.chat.id,
@@ -874,18 +1339,16 @@ async def thumb_without_reply(client, message):
             path = os.path.join(thumbpath, "thumbnail.jpg")
             if os.path.exists(path):
                 os.remove(path)
-            # largest_photo = message.reply_to_message.photo[-1]
-            # photo_id=message.reply_to_message.photo.file_id
             await client.download_media(
                 message.reply_to_message.photo.file_id, file_name=path
             )
             if os.path.exists(path):
                 with open(path, "rb") as f:
                     encoded_image = Binary(f.read())
-                    filter = {}  # this is an empty filter that matches all documents
+                    filter = {}
                     update = {
                         "$set": {"thumbnail": encoded_image}
-                    }  # this update removes the 'caption' field from the matched document
+                    }
                     dbmongo.update_one(filter, update)
                 os.remove(path)
             await message.reply_text("Thumbnail added.")
@@ -900,10 +1363,10 @@ async def thumb_without_reply(client, message):
         if message.reply_to_message and message.reply_to_message.text:
             caption = message.reply_to_message.text
             print(caption)
-            filter = {}  # this is an empty filter that matches all documents
+            filter = {}
             update = {
                 "$set": {"caption": caption}
-            }  # this update removes the 'caption' field from the matched document
+            }
             dbmongo.update_one(filter, update)
             await message.reply_text("Capton added.")
             await client.delete_messages(
@@ -923,22 +1386,13 @@ async def thumb_without_reply(client, message):
                 "/cmd -s caption"
             )
             return
-    # global msgopt
-    # await app.delete_messages(message.chat.id, msgopt.id)
-    # await app.delete_messages(message.chat.id, message.id)
-    # if os.path.exists(path):
-    #     with open(path, "rb") as f:
-    #         encoded_image = Binary(f.read())
-    #         filter = {}  # this is an empty filter that matches all documents
-    #         update = {
-    #             "$set": {"thumbnail": encoded_image}
-    #         }  # this update removes the 'caption' field from the matched document
-    #         dbmongo.update_one(filter, update)
     result = is_thumb_in_db()
     keyboard_buttons_thumb = [
         [InlineKeyboardButton(text="View thumbnail", callback_data="th:view")],
-        [InlineKeyboardButton(text="Delete thumbnail", callback_data="th:delete")],
-        [InlineKeyboardButton(text="Change Thumbnail", callback_data="th:add")],
+        [InlineKeyboardButton(text="Delete thumbnail",
+                              callback_data="th:delete")],
+        [InlineKeyboardButton(text="Change Thumbnail",
+                              callback_data="th:add")],
     ]
     keyboard_buttons_without_thumb = [
         [InlineKeyboardButton(text="Add thumbnail", callback_data="th:add")]
@@ -951,7 +1405,6 @@ async def thumb_without_reply(client, message):
         keyboard_buttons_without_thumb.append(
             [InlineKeyboardButton(text="✅Caption", callback_data="th:caption")]
         )
-
     no_thumb_keyboard = InlineKeyboardMarkup(keyboard_buttons_without_thumb)
     if result == 1 and check_caption() == 1:
         keyboard_buttons_thumb.append(
@@ -962,10 +1415,6 @@ async def thumb_without_reply(client, message):
             [InlineKeyboardButton(text="Caption", callback_data="th:caption")]
         )
     with_thumb_keyboard = InlineKeyboardMarkup(keyboard_buttons_thumb)
-    # check_caption()
-    # print(check_caption())
-
-    # print(result)
     global msgopt
     global msgopt_id
     doc = dbmongo.find_one()
@@ -975,17 +1424,12 @@ async def thumb_without_reply(client, message):
     else:
         caption = None
     if result == 0:
-
-        # global msgopt
         msgopt = await message.reply_text(
             f"**Choose option**\n**Caption:** `{caption}`",
             reply_markup=no_thumb_keyboard,
         )
-        # print(msgopt.id)
         msgopt_id = msgopt.id
     else:
-        # global msgopt
-
         msgopt = await message.reply_text(
             f"**Choose option**\n**Caption is:** `{caption}`",
             reply_markup=with_thumb_keyboard,
@@ -1003,8 +1447,7 @@ async def handle_thumb(client, callback_query):
     global caption_view_msg
     global caption_view_msg_id
     if action == "th:view":
-        # path = os.path.join(thumbpath, 'thumbnail.jpg')
-        # if os.path.exists(path):
+
         doc = dbmongo.find_one()
         encoded_image = doc["thumbnail"]
         if encoded_image is not None:
@@ -1014,25 +1457,21 @@ async def handle_thumb(client, callback_query):
                     callback_query.message.chat.id, photo="thumbnail.jpg"
                 )
                 await callback_query.message.edit_reply_markup(reply_markup=None)
-
                 await app.delete_messages(callback_query.message.chat.id, msgopt_id)
-
     elif action == "th:delete":
         path = os.path.join(thumbpath, "thumbnail.jpg")
-        filter = {}  # this is an empty filter that matches all documents
+        filter = {}
         update = {
             "$set": {"thumbnail": None}
-        }  # this update removes the 'caption' field from the matched document
+        }
         dbmongo.update_one(filter, update)
         if os.path.exists(path):
             os.remove(path)
-
             await callback_query.message.edit_reply_markup(reply_markup=None)
             await client.answer_callback_query(
                 callback_query.id, "Thumbnail Deleted", show_alert=True
             )
             await app.delete_messages(callback_query.message.chat.id, msgopt.id)
-
         else:
             await callback_query.message.reply_text("No thumbnail to delete.")
     elif action == "th:add":
@@ -1040,11 +1479,11 @@ async def handle_thumb(client, callback_query):
         if os.path.exists(path):
             os.remove(path)
         await callback_query.message.edit_reply_markup(reply_markup=None)
-        # global msgopt
+
         await app.delete_messages(callback_query.message.chat.id, msgopt.id)
         msgopt = await callback_query.message.reply_text("Send the thumbnail.")
         waiting_for_photo = True
-        # print(waiting_for_photo)
+
     elif action == "th:caption":
         if check_caption() == 1:
             caption_keyboard = InlineKeyboardMarkup(
@@ -1059,7 +1498,7 @@ async def handle_thumb(client, callback_query):
                             text="Edit caption", callback_data="csth:captionedit"
                         )
                     ],
-                    # [InlineKeyboardButton(text='Back', callback_data='csth:back')]
+
                 ]
             )
         else:
@@ -1070,12 +1509,10 @@ async def handle_thumb(client, callback_query):
                             text="Add caption", callback_data="csth:captionadd"
                         )
                     ],
-                    # [InlineKeyboardButton(text='Back', callback_data='csth:back')]
+
                 ]
             )
-            # print(msgopt.id)
 
-            # await callback_query.message.edit_reply_markup(reply_markup=None)
             try:
                 if msgopt:
                     await app.delete_messages(callback_query.message.chat.id, msgopt.id)
@@ -1085,7 +1522,6 @@ async def handle_thumb(client, callback_query):
                 print(f"An error occurred: {e}")
         doc = dbmongo.find_one()
         db_caption = doc["caption"]
-
         if db_caption is not None:
             caption_view_msg = await callback_query.message.reply_text(
                 f"<b>Caption Settings</b>\n<b>Current Caption:</b>\n{db_caption}",
@@ -1106,22 +1542,21 @@ async def handle_caption(client, callback_query):
     global waiting_for_new_caption
     global send_caption_msg_id
     global caption_view_msg_id
-    # print("Triggered")
+
     action = callback_query.data
-    # print(action)
+
     if action == "csth:captionadd":
         await callback_query.message.edit_reply_markup(reply_markup=None)
         await app.delete_messages(callback_query.message.chat.id, caption_view_msg_id)
         send_caption_msg = await callback_query.message.reply_text("Send the caption.")
         send_caption_msg_id = send_caption_msg.id
-
         waiting_for_caption = True
     elif action == "csth:captiondelete":
         if dbmongo is not None:
-            filter = {}  # this is an empty filter that matches all documents
+            filter = {}
             update = {
                 "$set": {"caption": None}
-            }  # this update removes the 'caption' field from the matched document
+            }
             dbmongo.update_one(filter, update)
             await callback_query.message.edit_reply_markup(reply_markup=None)
             await app.delete_messages(
@@ -1152,26 +1587,25 @@ async def caption_text(client, message):
     if waiting_for_caption:
         caption = message.text
         if dbmongo is not None:
-            filter = {}  # this is the filter that specifies which document to update
+            filter = {}
             update = {
                 "$set": {"caption": caption}
-            }  # this is the update that sets the new value for the 'caption' field
+            }
             dbmongo.update_one(filter, update)
-            # print(f"One document inserted with id {result.inserted_id}")
+
             await app.delete_messages(message.chat.id, message.id)
             await app.delete_messages(message.chat.id, send_caption_msg_id)
-            print("Caption added")
+            logger.info("Caption added")
         else:
-            print("No database connection")
+            logger.error("No database connection")
         waiting_for_caption = False
     elif waiting_for_new_caption:
         caption = message.text
-        print(caption)
         if dbmongo is not None:
-            filter = {}  # this is the filter that specifies which document to update
+            filter = {}
             update = {
                 "$set": {"caption": caption}
-            }  # this is the update that sets the new value for the 'caption' field
+            }
             dbmongo.update_one(filter, update)
             print("Caption updated")
             await app.delete_messages(message.chat.id, message.id)
@@ -1185,7 +1619,6 @@ async def caption_text(client, message):
         if not re.match(pattern, message.text):
             await message.reply_text("Invalid input! Please enter a valid range.")
             return
-
         await bot.on_message(client, message)
         waiting_for_user_ep_range = False
 
@@ -1195,21 +1628,20 @@ async def thumb_image(client, message):
     global waiting_for_photo
     global msgopt
     if waiting_for_photo:
-        # print(waiting_for_photo)
+
         path = os.path.join(thumbpath, "thumbnail.jpg")
         await message.download(file_name=path)
         await message.reply_text("Thumbnail added.")
 
-        # global msgopt
         await app.delete_messages(message.chat.id, msgopt.id)
         await app.delete_messages(message.chat.id, message.id)
         if os.path.exists(path):
             with open(path, "rb") as f:
                 encoded_image = Binary(f.read())
-                filter = {}  # this is an empty filter that matches all documents
+                filter = {}
                 update = {
                     "$set": {"thumbnail": encoded_image}
-                }  # this update removes the 'caption' field from the matched document
+                }
                 dbmongo.update_one(filter, update)
         waiting_for_photo = False
 
@@ -1228,5 +1660,4 @@ async def on_callbackquery_download(client, callback_query):
 async def on_callback_query(client, callback_query):
     if waiting_for_search_drama:
         await bot.on_callback_query(client, callback_query)
-
 app.run()
