@@ -7,15 +7,18 @@
 Can Download episode range for a drama.<br>
 Select specific episodes in addition to a range of episodes. Examples of valid inputs: 1,3,5 | 1-4,6 | 5 | 1-5 | 1- | -3 <br>
 Can set captions and Thumnails for medias. <br>
-Concurrent Upload of Maxmimum 16 episodes per upload
+Concurrent Upload of Maxmimum 16 episodes per upload, <br>
+Rclone Support. Can Upload Episode by episode or download the whole series and zip it and upload.
+**For rclone to work add your rclone.conf to the main directory after clonning.**
 ## ❗Limitations ❗
 Only can download one movie or a series at one time.<br>
 No progress for download. But will send a message saying the episode dowloaded.<br>
+One ongoing task at a time.
 Don't send multiple commands while a process is ongoing.<br>
 Thumbnail and caption feature will only work if the MongoDB is connected.(Recommended to add this)<br>
-Only the owner can use the bot.
-All files are send as documents.
-Upload progress messages are everywhere.
+Only the owner can use the bot.<br>
+All files are send as documents.<br>
+Upload progress messages are everywhere.<br>
 ## Installation
 
 ### Deploy in your vps(Linux)
@@ -135,7 +138,11 @@ sudo docker image prune -a
 
 * OWNER_ID      - Your Telegram ID. Get from send /id command to @MissRose_bot
 
-* DATABASE_URL  - MongoDB URL ([Click here](https://github.com/pachax001/My-Asian-Tv-Dramacool-Telegram-bot/blob/main/README.md#-generate-mongodb-database) for more info on MongoDB URL.) </br>
+* DATABASE_URL  - MongoDB URL ([Click here](https://github.com/pachax001/My-Asian-Tv-Dramacool-Telegram-bot/blob/main/README.md#-generate-mongodb-database) for more info on MongoDB URL.)
+
+* DEFAULT_RCLONE_PATH = "" Default Rclone Path from rclone config. Eg: "My_drive:"
+
+* RCLONE_CONF_PATH = "/usr/src/app/" Do not change this.
 
 ### config_udb.yaml file
 #### Warning ⚠
@@ -149,6 +156,8 @@ sudo docker image prune -a
 start - Start the bot
 drama - Search for drama or movie
 usetting - Settings for caption and thumbnail
+mirrordrama - To upload each episode to rclone drive
+zipmirrordrama - Zip and upload series or downloaded episodes to rclone drive.
 ```
 ### 📡 ***Generate MongoDB Database***
 
