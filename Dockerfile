@@ -1,5 +1,5 @@
 # Use a lightweight base image
-FROM mysterysd/wzmlx:latest
+FROM debian:bullseye-slim
 
 WORKDIR /usr/src/app
 RUN chmod 777 /usr/src/app
