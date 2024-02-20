@@ -21,6 +21,7 @@ import re
 import math
 from pymediainfo import MediaInfo
 import sys
+from io import BytesIO
 last_update_time = 0
 waiting_for_photo = False
 waiting_for_caption = False
@@ -279,7 +280,40 @@ class DramaBot:
             "Search Results:", reply_markup=reply_markup
         )
         waiting_for_search_drama = True
+    @app.on_message(filters.command("shell"))
+    async def shell(client, message):
+        try:
+            cmd = message.text.split(maxsplit=1)
+            if len(cmd) == 1:
+                await message.reply_text("No command to execute was given.")
+                return
 
+            process = await asyncio.create_subprocess_exec(
+                *cmd[1].split(),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+
+            reply = ''
+            if stdout:
+                reply += f"*Stdout*\n{stdout.decode()}\n"
+                logger.info(f"Shell - {cmd} - {stdout.decode()}")
+            if stderr:
+                reply += f"*Stderr*\n{stderr.decode()}"
+                logger.error(f"Shell - {cmd} - {stderr.decode()}")
+
+            if len(reply) > 3000:
+                with BytesIO(str.encode(reply)) as out_file:
+                    out_file.name = "shell_output.txt"
+                    await app.send_document(message.chat.id, out_file)
+            elif len(reply) != 0:
+                await message.reply_text(reply)
+            else:
+                await message.reply_text('No Reply')
+        except Exception as e:
+            logger.error(f"Error in executing shell command: {e}")
+            await message.reply_text(f"An error occurred: {e}")
     async def on_callback_query(self, client, callback_query):
         global ongoing_task
         global search_res_msg
@@ -1225,6 +1259,8 @@ async def start(client, message):
                 "Can use /us also.Set thumbnail and caption for uploaded media",
             ),
             BotCommand("help", "Get help"),
+            BotCommand("log", "Get log.txt"),
+            BotCommand("shell", "Execute Shell commands"),
         ]
     )
     if message.from_user.id != OWNER_ID:
@@ -1277,7 +1313,9 @@ async def drama(client, message):
     ongoing_task = True
     telegram_upload = True
     await bot.drama(client, message)
-
+@app.on_message(filters.command("shell") & filters.user(OWNER_ID))
+async def shell(client, message):
+    await bot.shell(client, message)
 
 @app.on_message(
     (filters.command("mirrordrama") | filters.command("md")) & filters.user(OWNER_ID)
@@ -1323,7 +1361,20 @@ async def help(client, message):
         disable_web_page_preview=True,
     )
 
+@app.on_message(filters.command("log", prefixes="/"))
+async def send_log(client, message):
+    try:
+        user_id = message.from_user.id
+        if user_id == OWNER_ID:
 
+            chat_id = message.chat.id
+            log_file_path = os.path.join(os.path.dirname(__file__), "log.txt")
+            await app.send_document(chat_id, document=log_file_path)
+        else:
+            await message.reply_text("Only Owner can use this command")
+    except Exception as e:
+        logging.error(f"Error processing log file: {e}")
+        await message.reply_text("An error occured while processsing the log file.")
 @app.on_message(
     (filters.command("usetting") | filters.command("us")) & filters.user(OWNER_ID)
 )
