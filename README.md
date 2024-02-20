@@ -158,6 +158,7 @@ drama - Search for drama or movie
 usetting - Settings for caption and thumbnail
 mirrordrama - To upload each episode to rclone drive
 zipmirrordrama - Zip and upload series or downloaded episodes to rclone drive.
+shell - Execcute bash commands
 ```
 ### 📡 ***Generate MongoDB Database***
 
