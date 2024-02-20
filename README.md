@@ -8,7 +8,7 @@ Can Download episode range for a drama.<br>
 Select specific episodes in addition to a range of episodes. Examples of valid inputs: 1,3,5 | 1-4,6 | 5 | 1-5 | 1- | -3 <br>
 Can set captions and Thumnails for medias. <br>
 Concurrent Upload of Maxmimum 16 episodes per upload, <br>
-Rclone Support. Can Upload Episode by episode or download the whole series and zip it and upload.
+Rclone Support. Can Upload Episode by episode or download the whole series and zip it and upload.<br>
 **For rclone to work add your rclone.conf to the main directory after clonning.**
 ## ❗Limitations ❗
 Only can download one movie or a series at one time.<br>
