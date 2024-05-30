@@ -1509,7 +1509,7 @@ async def is_rclone_running():
     except subprocess.CalledProcessError:
         return False
 @app.on_message(filters.command("cancel") & filters.user(OWNER_ID))
-async def cancel(self,client,message):
+async def cancel(client,message):
     
     try:
         if await is_ffmpeg_running():
@@ -1548,7 +1548,7 @@ async def cancel(self,client,message):
         waiting_for_user_ep_range = False
         ongoing_task = False
         telegram_upload = False
-        self.reset()
+       
         
            
 
