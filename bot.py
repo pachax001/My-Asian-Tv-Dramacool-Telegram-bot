@@ -22,6 +22,7 @@ import math
 from pymediainfo import MediaInfo
 import sys
 from io import BytesIO
+import subprocess
 last_update_time = 0
 waiting_for_photo = False
 waiting_for_caption = False
@@ -241,6 +242,12 @@ class DramaBot:
         self.search_results = {}
         self.DCL.udb_episode_dict.clear()
         base_client.udb_episode_dict.clear()
+        if not os.path.exists(downloader_config["download_dir"]):
+            logger.debug(f"Creating download directory:{downloader_config['download_dir']}...")
+            os.makedirs(downloader_config["download_dir"])
+        if not os.path.exists(thumbpath):
+            print(f"Creating thumbnail directory:{thumbpath}...")
+            os.makedirs(thumbpath)
 
     async def drama(self, client, message):
         self.reset()
@@ -645,7 +652,8 @@ class DramaBot:
                     now = _time.time()
                     pct = current * 100 / total
                     pct_str = f"{filename} : {pct:.1f}%"
-
+                    convert_total = convert_size(total)
+                    convert_current = convert_size(current)
                     pct = float(str(pct).strip("%"))
                     p = min(max(pct, 0), 100)
                     cFull = int(p // 8)
@@ -655,7 +663,7 @@ class DramaBot:
                         p_str += ["▤", "▥", "▦", "▧", "▨", "▩", "■"][cPart]
                     p_str += "□" * (12 - cFull)
                     progress_bar = f"[{p_str}]"
-                    progress_text = f"{pct_str} {progress_bar}"
+                    progress_text = f"Uploading to telegram {pct_str} {progress_bar} {convert_current}/{convert_total}" 
                     if message.text != progress_text:
                         if (
                             filename not in last_update_times
@@ -699,19 +707,17 @@ class DramaBot:
                                     break
                             doc = dbmongo.find_one()
                             encoded_image = doc["thumbnail"]
-                            caption_db = doc["caption"]
-                            try:
-                                caption_db.format(
-                                    filename="test", size="test", duration="test"
-                                )
-                            except KeyError as e:
-                                print(
-                                    f"Caption contains unrecognized format: {e}")
-                                await app.send_message(
-                                    callback_query.message.chat.id,
-                                    f"Caption contains unrecognized format: {e}. Removing the format.",)
-                                caption_db = re.sub(
-                                    r"\{[^}]*\}", "", caption_db)
+                            known_keys = {"filename", "size", "duration"}
+                            def format_caption(caption, **kwargs):
+                                try:
+                                    return caption.format(**kwargs)
+                                except KeyError as e:
+                                    print(f"Caption contains unrecognized format: {e}")
+                                    unrecognized_key = str(e).strip("'")
+                                    # Remove the unrecognized format placeholder
+                                    return re.sub(rf"\{{{unrecognized_key}\}}", "", caption)
+                            unformat_caption_db = doc["caption"]
+                            caption_db = format_caption(unformat_caption_db, filename=filename, size=file_size_con, duration=duration)
                             if encoded_image is not None and caption_db is None:
                                 with open("thumbnail.jpg", "wb") as f:
                                     f.write(encoded_image)
@@ -1488,8 +1494,67 @@ async def usetting(client, message):
             parse_mode=ParseMode.MARKDOWN,
         )
         msgopt_id = msgopt.id
+async def is_ffmpeg_running():
+    # Check if ffmpeg process is running
+    try:
+        subprocess.run(["pgrep", "ffmpeg"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+async def is_rclone_running():
+    # Check if ffmpeg process is running
+    try:
+        subprocess.run(["pgrep", "rclone"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+@app.on_message(filters.command("cancel") & filters.user(OWNER_ID))
+async def cancel(client,message,self):
+    
+    try:
+        if await is_ffmpeg_running():
+            proc = await asyncio.create_subprocess_exec("pkill", "-9", "-f", "ffmpeg")
+            await proc.communicate()                
+    except Exception as e:
+        logger.error("Error while killing ffmpeg: %s", e)
+        pass
+    try:
+        if await is_rclone_running():
+            proc = await asyncio.create_subprocess_exec("pkill", "-9", "-f", "rclone")
+            await proc.communicate()                
+    except Exception as e:
+        logger.error("Error while killing rclone: %s", e)
+    if os.path.exists("downloads"):
+        try:
+            shutil.rmtree("downloads")
+            logger.info("Deleted downloads folder")
+        except Exception as e:
+            logger.error("Failed to delete downloads folder: %s", e)
+            pass
+    global waiting_for_mirror
+    global waiting_for_zip_mirror
+    global waiting_for_caption
+    global waiting_for_new_caption
+    global waiting_for_photo
+    global waiting_for_user_ep_range
+    global ongoing_task
+    global telegram_upload
+    if waiting_for_mirror or waiting_for_zip_mirror or waiting_for_caption or waiting_for_new_caption or waiting_for_photo or waiting_for_user_ep_range or ongoing_task or telegram_upload:
+        waiting_for_mirror = False
+        waiting_for_zip_mirror = False
+        waiting_for_caption = False
+        waiting_for_new_caption = False
+        waiting_for_photo = False
+        waiting_for_user_ep_range = False
+        ongoing_task = False
+        telegram_upload = False
+        self.reset()
+        
+           
 
-
+        await message.reply_text("Task cancelled.")
+    else:
+        await message.reply_text("No task is ongoing.")
 @app.on_callback_query(filters.regex("^th:"))
 async def handle_thumb(client, callback_query):
     action = callback_query.data
