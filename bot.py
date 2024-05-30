@@ -1509,7 +1509,7 @@ async def is_rclone_running():
     except subprocess.CalledProcessError:
         return False
 @app.on_message(filters.command("cancel") & filters.user(OWNER_ID))
-async def cancel(client,message,self):
+async def cancel(self,client,message):
     
     try:
         if await is_ffmpeg_running():
