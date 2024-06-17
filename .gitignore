@@ -1,2 +1,7 @@
 /venv
 config.env
+*.session
+*.pyc
+__pycache__/
+.journal
+log.txt

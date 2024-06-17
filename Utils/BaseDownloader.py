@@ -9,7 +9,7 @@ from requests.adapters import HTTPAdapter
 from shutil import rmtree
 from tqdm.auto import tqdm
 from urllib3.util.retry import Retry
-
+from Utils.logger import logger
 from Utils.commons import exec_os_cmd, retry
 
 
@@ -19,7 +19,7 @@ class BaseDownloader():
     '''
     def __init__(self, dl_config, referer_link, out_file, session=None):
         # logger init
-        self.logger = logging.getLogger()
+        logger = logging.getLogger()
         # set downloader configuration
         self.out_dir = dl_config['download_dir']
         self.concurrency = dl_config['concurrency_per_file'] if dl_config['concurrency_per_file'] != 'auto' else None
@@ -131,7 +131,7 @@ class BaseDownloader():
         failed_segments = 0
         ep_no = self._get_shortened_ep_name()
         type = metadata.pop('type')
-        self.logger.debug(f'[{ep_no}] Downloading {len(urls)} {type} using {self.concurrency} workers...')
+        logger.debug(f'[{ep_no}] Downloading {len(urls)} {type} using {self.concurrency} workers...')
 
         theme = '{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
         metadata.update({
@@ -151,7 +151,7 @@ class BaseDownloader():
                 for result in as_completed(results):
                     status, size = result.result()
                     if 'ERROR' in status:
-                        self.logger.debug('error', status)
+                        logger.debug('error', status)
                         failed_segments += 1
                     elif 'Reusing' in status:
                         reused_segments += 1
@@ -164,7 +164,7 @@ class BaseDownloader():
                     seg_status = f'R/F: {reused_segments}/{failed_segments}'
                     progress.set_postfix_str(seg_status, refresh=True)
 
-        self.logger.info(f'[{ep_no}] {type.capitalize()} download status: Total: {len(urls)} | Reused: {reused_segments} | Failed: {failed_segments}')
+        logger.info(f'[{ep_no}] {type.capitalize()} download status: Total: {len(urls)} | Reused: {reused_segments} | Failed: {failed_segments}')
         if failed_segments > 0:
             raise Exception(f'Failed to download {failed_segments} / {len(urls)} {type}')
 
@@ -185,17 +185,17 @@ class BaseDownloader():
         # set chunk size to 1MiB
         self.chunk_size = 1024*1024
         # create output directory
-        self.logger.debug('Creating output directories')
+        logger.debug('Creating output directories')
         self._create_out_dirs()
 
-        self.logger.debug('Fetching stream data')
+        logger.debug('Fetching stream data')
         dl_data = self._get_raw_stream_data(dl_link, True)
         file_size = int(dl_data.headers.get('content-length', 0))
 
         chunks = range(0, file_size, self.chunk_size)
         chunk_urls = [[dl_link, self._create_chunk_header(chunk), f'{self.out_file}.chunk{chunk_no}'] for chunk_no, chunk in enumerate(chunks)] 
 
-        self.logger.debug('Downloading chunks')
+        logger.debug('Downloading chunks')
         metadata = {
             'type': 'chunks',
             'total': file_size,
@@ -205,11 +205,11 @@ class BaseDownloader():
         }
         self._multi_threaded_download(self._download_chunk, chunk_urls, **metadata)
 
-        self.logger.debug('Merging chunks to single file')
+        logger.debug('Merging chunks to single file')
         self._merge_chunks(len(chunks))
 
         # remove temp dir once completed and dir is empty
-        self.logger.debug('Removing temporary directories')
+        logger.debug('Removing temporary directories')
         self._remove_out_dirs()
 
         return (0, 'Success')

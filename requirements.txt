@@ -6,7 +6,7 @@ requests
 tqdm
 pycryptodomex
 undetected-chromedriver
-pyrogram
+pyrofork
 tgcrypto
 python-dotenv
 pymongo

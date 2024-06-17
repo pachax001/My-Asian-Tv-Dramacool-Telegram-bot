@@ -15,26 +15,7 @@ from Cryptodome.Cipher import AES
 
 from Utils.commons import exec_os_cmd, pretty_time, retry, threaded
 
-import logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-
-# Create a file handler
-handler = logging.FileHandler('bot.log')
-handler.setLevel(logging.DEBUG)
-
-# Create a stream handler (this will print log messages to the console)
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.DEBUG)
-
-# Create a logging format
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-stream_handler.setFormatter(formatter)
-
-# Add the handlers to the logger
-logger.addHandler(handler)
-logger.addHandler(stream_handler)
+from Utils.logger import logger
 class BaseClient():
     '''
     Base Client Implementation for Site-specific clients
@@ -65,14 +46,14 @@ class BaseClient():
         self.invalid_chars = ['/', '\\', '"', ':', '?', '|', '<', '>', '*']
         self.bs = AES.block_size
         # get the root logger
-        self.logger = logging.getLogger()
+        
 
     def _update_udb_dict(self, parent_key, child_dict):
         if parent_key in self.udb_episode_dict:
             self.udb_episode_dict[parent_key].update(child_dict)
         else:
             self.udb_episode_dict[parent_key] = child_dict
-        self.logger.debug(f'Updated udb dict: {self.udb_episode_dict}')
+        logger.debug(f'Updated udb dict: {self.udb_episode_dict}')
         #print(f'Updated udb dict: {self.udb_episode_dict}')
 
     def _get_udb_dict(self):
@@ -81,6 +62,7 @@ class BaseClient():
     
     @retry()
     def _send_request(self, url, referer=None, extra_headers=None, cookies={}, return_type='text'):
+        logger.debug(f'Sending request to {url = }')
         '''
         call response session and return response
         Argument: return_type - valid options are text/json/bytes/raw
@@ -92,18 +74,33 @@ class BaseClient():
         if extra_headers: header.update(extra_headers)
         if return_type.lower() == 'json': header.update({'accept': 'application/json, text/javascript'})
         response = self.req_session.get(url, timeout=self.request_timeout, headers=header, cookies=cookies, verify=False)
+        logger.debug(f'Response status code: {response.status_code}')
+        #response.raise_for_status() 
         #print(f'from send_request response: {response}')
-        if response.status_code == 200:
-            if return_type.lower() == 'text':
-                return response.text
-            elif return_type.lower() == 'bytes':
-                return response.content
-            elif return_type.lower() == 'json':
-                return response.json()
-            elif return_type.lower() == 'raw':
-                return response
-        else:
-            self.logger.error(f'Failed with response code: {response.status_code}')
+        try:
+            if response.status_code == 200:
+                if return_type.lower() == 'text':
+                    return response.text
+                elif return_type.lower() == 'bytes':
+                    return response.content
+                elif return_type.lower() == 'json':
+                    return response.json()
+                elif return_type.lower() == 'raw':
+                    return response
+            elif response.status_code == 404:
+                logger.error(f'404 Error: Page not found for URL: {url}')
+                return None
+            else:
+                response.raise_for_status()
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f'HTTP error occurred: {http_err} for URL: {url}')
+            if response.status_code == 404:
+                return None
+            return None
+        except requests.exceptions.RequestException as req_err:
+            logger.error(f'Request error occurred: {req_err} for URL: {url}')
+            return None
+        
 
     def _get_bsoup(self, search_url, referer=None, extra_headers=None, cookies={}):
         '''
@@ -112,6 +109,11 @@ class BaseClient():
         time.sleep(1)
         #html_content = None
         html_content = self._send_request(search_url, referer, extra_headers, cookies, 'text')
+        logger.debug(f'Fetched html content for {search_url = }')
+        logger.debug(f'Fetched html content: {html_content}')
+        if html_content in [None, 'Error 404: Page not found']:
+            
+            return html_content
         #print("raw html : ",html_content)
         return BS(html_content, 'html.parser')
 
@@ -137,9 +139,9 @@ class BaseClient():
         '''
         return stream link for extracting download links
         '''
-        self.logger.debug(f'Extract stream link from soup for {link = }')
+        logger.debug(f'Extract stream link from soup for {link = }')
         soup = self._get_bsoup(link)
-        # self.logger.debug(f'bsoup response for {link = }: {soup}')
+        # logger.debug(f'bsoup response for {link = }: {soup}')
         for stream in soup.select(stream_links_element):
             if 'active' in stream.get('class'):
                 stream_link = stream['data-video']
@@ -154,9 +156,9 @@ class BaseClient():
         '''
         m3u8_links = {}
         base_url = '/'.join(master_m3u8_link.split('/')[:-1])
-        self.logger.debug(f'Extracting m3u8 data from master link: {master_m3u8_link}')
+        logger.debug(f'Extracting m3u8 data from master link: {master_m3u8_link}')
         master_m3u8_data = self._send_request(master_m3u8_link, referer)
-        # self.logger.debug(f'{master_m3u8_data = }')
+        # logger.debug(f'{master_m3u8_data = }')
 
         _regex_list = lambda data, rgx, grp: [ url.group(grp) for url in re.finditer(rgx, data) ]
         _full_link = lambda link: link if link.startswith('http') else base_url + '/' + link
@@ -185,7 +187,7 @@ class BaseClient():
             # check for original keyword in the link, or if '#EXT-X-ENDLIST' in m3u8 data
             master_is_child = re.search('#EXT-X-ENDLIST', master_m3u8_data)
             if 'original' in master_m3u8_link or master_is_child:
-                self.logger.debug('master m3u8 link itself is the download link')
+                logger.debug('master m3u8 link itself is the download link')
                 m3u8_links['1080'] = {                            # set resolution size to 1080 (assuming it as default. could be wrong)
                     'resolution_size': 'Original (HD)',
                     'downloadLink': master_m3u8_link,
@@ -208,21 +210,21 @@ class BaseClient():
         try:
             # Note: ffprobe is taking 3-10s, so try to avoid as much as possible
             if link_type == 'hls':
-                self.logger.debug('Fetching video duration by parsing video link')
+                logger.debug('Fetching video duration by parsing video link')
                 data = self._send_request(link)
                 duration = sum([ float(match.group(1)) for match in re.finditer('#EXTINF:(.*),', data) ])
             else:
                 # add -show_streams in ffprobe to get more information
-                self.logger.debug('Fetching video duration using ffprobe command')
+                logger.debug('Fetching video duration using ffprobe command')
                 video_metadata = json.loads(self._exec_cmd(f'ffprobe -loglevel quiet -print_format json -show_format {link}'))
                 duration = float(video_metadata.get('format').get('duration'))
                 size = float(video_metadata.get('format').get('size'))
-                self.logger.debug(f'Size fetched is {size} bytes')
+                logger.debug(f'Size fetched is {size} bytes')
 
-            self.logger.debug(f'Duration fetched is {duration} seconds')
+            logger.debug(f'Duration fetched is {duration} seconds')
 
         except Exception as e:
-            self.logger.warning(f'Failed to fetch video duration. Error: {e}')
+            logger.warning(f'Failed to fetch video duration. Error: {e}')
 
         return round(duration), size
     @threaded()
@@ -230,7 +232,7 @@ class BaseClient():
         try:
             content_len = float(requests.get(url).headers.get('content-length', 0))
         except Exception as e:
-            self.logger.warning(f'Failed to fetch video content length for {url = }. Error: {e}')
+            logger.warning(f'Failed to fetch video content length for {url = }. Error: {e}')
             content_len = 0
 
         return content_len
@@ -244,10 +246,10 @@ class BaseClient():
         # disabling this due to inaccuracy
         #return None
         try:
-            #self.logger.debug(f'Calculating {quality} download size for {m3u8_link = }')
+            #logger.debug(f'Calculating {quality} download size for {m3u8_link = }')
             if self.hls_size_accuracy == 0:     # this parameter should be defined in respective client initialization
                 return None
-            self.logger.debug(f'Calculating download size for {m3u8_link = }')
+            logger.debug(f'Calculating download size for {m3u8_link = }')
             m3u8_data = self._send_request(m3u8_link)
             # extract ts segment urls. same as in HLS downloader
             base_url = '/'.join(m3u8_link.split('/')[:-1])
@@ -262,12 +264,12 @@ class BaseClient():
             # avg_content_len = sum(content_lens) / len(content_lens)
             # dl_size = avg_content_len * len(urls)       # total approx file size in bytes
             # dl_size = round(dl_size / (1024**2))        # bytes to MB
-            # self.logger.indebugfo(f'{quality.capitalize()} download size is {dl_size} MB')
+            # logger.indebugfo(f'{quality.capitalize()} download size is {dl_size} MB')
             tgt_len = len(urls) * self.hls_size_accuracy // 100
             url_set = urls[:tgt_len]
             # define correction factor to adjust the estimated size
             cf = 0.85 if self.hls_size_accuracy < 95 else 0.9
-            self.logger.debug(f'Segments considered based on accuracy of {self.hls_size_accuracy}% is {tgt_len}/{len(urls)}. Correction factor: {cf}')
+            logger.debug(f'Segments considered based on accuracy of {self.hls_size_accuracy}% is {tgt_len}/{len(urls)}. Correction factor: {cf}')
             content_lens = self._fetch_content_length(url_set)
 
             # calculate total file size in bytes
@@ -278,10 +280,10 @@ class BaseClient():
                 dl_size = avg_content_len * len(urls) * cf
 
             dl_size = round(dl_size / (1024**2))         # bytes to MB
-            self.logger.debug(f'Download size is {dl_size} MB')
+            logger.debug(f'Download size is {dl_size} MB')
 
         except Exception as e:
-            self.logger.warning(f'Failed to fetch download size for {m3u8_link = }. Error: {e}')
+            logger.warning(f'Failed to fetch download size for {m3u8_link = }. Error: {e}')
             dl_size = None
 
         return dl_size
@@ -292,7 +294,7 @@ class BaseClient():
         retrieve download links from stream link and return available resolution links
         - Sort the resolutions in ascending order
         '''
-        self.logger.debug(f'Received get download links config: {gdl_config = }')
+        logger.debug(f'Received get download links config: {gdl_config = }')
 
         # unpack configuration dictionary
         link = gdl_config['link']
@@ -311,7 +313,7 @@ class BaseClient():
                 encryption_key, iv, decryption_key = (
                     _.group(1) for _ in crypt_keys_regex.finditer(stream_page_content)
                 )
-                self.logger.debug(f'Extracted {encryption_key = }, {decryption_key = }, {iv = }')
+                logger.debug(f'Extracted {encryption_key = }, {decryption_key = }, {iv = }')
 
             except Exception as e:
                 return {'error': f'Failed to extract encryption keys. Error: {e}'}
@@ -324,13 +326,13 @@ class BaseClient():
         # get encrypted url arguments and decrypt
         try:
             encrypted_args = encrypted_url_args_regex.search(stream_page_content).group(1)
-            self.logger.debug(f'Extracted {encrypted_args = }')
+            logger.debug(f'Extracted {encrypted_args = }')
             if encrypted_args is None or encrypted_args == '':
                 raise Exception('Encrypted url arguments not found in stream link')
 
-            self.logger.debug('Decrypting extracted url arguments')
+            logger.debug('Decrypting extracted url arguments')
             decrypted_args = self._aes_decrypt(encrypted_args, encryption_key, iv)
-            self.logger.debug(f'{decrypted_args = }')
+            logger.debug(f'{decrypted_args = }')
             if decrypted_args is None or decrypted_args == '':
                 raise Exception('Failed to decrypt extracted url arguments')
 
@@ -340,30 +342,30 @@ class BaseClient():
         # extract url params & get id value
         try:
             uid = parse_qs(urlparse(link).query).get('id')[0]
-            self.logger.debug(f'Extracted {uid = }')
+            logger.debug(f'Extracted {uid = }')
             if uid is None or uid == '':
                 raise Exception('ID not found in stream link')
         except Exception as e:
             return {'error': f'Failed to fetch Stream ID with error: {e}'}
 
         # encrypt the uid and construct download link with required parameters
-        self.logger.debug(f'Creating encrypted link')
+        logger.debug(f'Creating encrypted link')
         encrypted_uid = self._aes_encrypt(uid, encryption_key, iv)
-        self.logger.debug(f'{encrypted_uid = }')
+        logger.debug(f'{encrypted_uid = }')
         stream_base_url = '/'.join(link.split('/')[:3])
         dl_sources_link = f'{stream_base_url}/{download_fetch_link}?id={encrypted_uid}&alias={decrypted_args}'
-        self.logger.debug(f'{dl_sources_link = }')
+        logger.debug(f'{dl_sources_link = }')
 
         try:
             # get encrpyted response with download links
-            self.logger.debug(f'Fetch download links from encrypted url')
+            logger.debug(f'Fetch download links from encrypted url')
             encrypted_response = self._send_request(dl_sources_link, link, {'x-requested-with': 'XMLHttpRequest'}, return_type='json')['data']
-            self.logger.debug(f'{encrypted_response = }')
+            logger.debug(f'{encrypted_response = }')
 
             # decode the response
-            self.logger.debug(f'Decoding the response')
+            logger.debug(f'Decoding the response')
             decoded_response = self._aes_decrypt(encrypted_response, decryption_key, iv)
-            self.logger.debug(f'{decoded_response = }')
+            logger.debug(f'{decoded_response = }')
             decoded_response = json.loads(decoded_response)
 
         except Exception as e:
@@ -375,7 +377,7 @@ class BaseClient():
             if decoded_response.get(key, '') != '':
                 download_links.extend(decoded_response.get(key))
 
-        self.logger.debug(f'Extracted links: {download_links = }')
+        logger.debug(f'Extracted links: {download_links = }')
         if len(download_links) == 0:
             return {'error': 'No download links found'}
 
@@ -386,12 +388,12 @@ class BaseClient():
         # remove blacklisted urls
         ordered_download_links = [ j for j in ordered_download_links if not any(i in j.get('file') for i in blacklist_urls) ]
 
-        self.logger.debug(f'{ordered_download_links = }')
+        logger.debug(f'{ordered_download_links = }')
         if len(ordered_download_links) == 0:
             return {'error': 'No download links found after filtering'}
 
         # extract resolution links from source links
-        self.logger.debug('Extracting resolution download links...')
+        logger.debug('Extracting resolution download links...')
         counter = 0
         resolution_links = {}
 
@@ -403,24 +405,24 @@ class BaseClient():
             if dtype == 'hls':
                 try:
                     # extract inner m3u8 resolution links from master m3u8 link
-                    self.logger.debug(f'Found m3u8 link. Getting m3u8 links from master m3u8 link [{dlink}]')
+                    logger.debug(f'Found m3u8 link. Getting m3u8 links from master m3u8 link [{dlink}]')
                     m3u8_links = self._parse_m3u8_links(dlink, link)
-                    self.logger.debug(f'Returned {m3u8_links = }')
+                    logger.debug(f'Returned {m3u8_links = }')
 
                     if len(m3u8_links) > 0:
-                        self.logger.debug('m3u8 links obtained. No need to try with alternative. Breaking loop')
+                        logger.debug('m3u8 links obtained. No need to try with alternative. Breaking loop')
                         resolution_links.update(m3u8_links)
                         break
 
                 except Exception as e:
                     # try with alternative master m3u8 link
-                    self.logger.warning(f'Failed to fetch m3u8 links from {dlink = } with error: {e}. Trying with alternative...')
+                    logger.warning(f'Failed to fetch m3u8 links from {dlink = } with error: {e}. Trying with alternative...')
                     if counter >= len(ordered_download_links):
-                        self.logger.warning('No other alternatives found')
+                        logger.warning('No other alternatives found')
 
             elif dtype == 'mp4':
                 # if link is mp4, it is a direct download link
-                self.logger.debug(f'Found mp4 link. Adding the direct download link [{dlink}]')
+                logger.debug(f'Found mp4 link. Adding the direct download link [{dlink}]')
                 duration, file_size = self._get_video_metadata(dlink, link_type='mp4')
                 duration = pretty_time(duration)
                 resltn = download_link.get('label', 'unknown').split()[0]
@@ -437,12 +439,12 @@ class BaseClient():
 
             else:
                 # unknown download type
-                self.logger.warning(f'Unknown download type [{dtype}] for link [{dlink}]')
+                logger.warning(f'Unknown download type [{dtype}] for link [{dlink}]')
 
         if resolution_links:      # sort the resolutions in ascending order
             resolution_links = dict(sorted(resolution_links.items(), key=lambda x: int(x[0])))
 
-        self.logger.debug(f'Sorted resolution links: {resolution_links = }')
+        logger.debug(f'Sorted resolution links: {resolution_links = }')
 
         return resolution_links
 

@@ -23,6 +23,7 @@ from pymediainfo import MediaInfo
 import sys
 from io import BytesIO
 import subprocess
+from Utils.logger import logger
 last_update_time = 0
 waiting_for_photo = False
 waiting_for_caption = False
@@ -33,19 +34,9 @@ waiting_for_mirror = False
 telegram_upload = False
 waiting_for_zip_mirror = False
 ongoing_task = False
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+
 base_client = BaseClient()
-handler = logging.FileHandler("log.txt")
-handler.setLevel(logging.DEBUG)
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter(
-    "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-stream_handler.setFormatter(formatter)
-logger.addHandler(handler)
-logger.addHandler(stream_handler)
+
 config_file = "config_udb.yaml"
 config = load_yaml(config_file)
 downloader_config = config["DownloaderConfig"]
@@ -260,7 +251,10 @@ class DramaBot:
             ongoing_task = False
             return
         try:
+            
             search_results = self.DCL.search(keyword)
+            logger.info(f"Search results: {search_results}")
+            
             logger.info(f"Search results: {search_results}")
             self.search_results = {
                 i + 1: result for i, result in enumerate(search_results.values())
@@ -268,10 +262,13 @@ class DramaBot:
         except Exception as e:
             logger.error(f"An error occurred during search: {e}")
             await message.reply_text("An error occurred during the search.")
+            ongoing_task = False
+            self.reset()
             return
         if not self.search_results:
             await message.reply_text("No results found.")
             ongoing_task = False
+            self.reset()
             return
         keyboard = [
             [
