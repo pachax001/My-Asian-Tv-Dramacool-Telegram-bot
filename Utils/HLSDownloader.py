@@ -91,16 +91,16 @@ class HLSDownloader(BaseDownloader):
 
     def start_download(self, m3u8_link):
         # create output directory
-        logger.debug('Creating output directories')
+        #logger.debug('Creating output directories')
         self._create_out_dirs()
 
         iv = None
-        logger.debug('Fetching stream data')
+        #logger.debug('Fetching stream data')
         m3u8_data = self._get_stream_data(m3u8_link, True)
 
-        logger.debug('Check if stream is encrypted/mapped')
+        #logger.debug('Check if stream is encrypted/mapped')
         if self._has_uri(m3u8_data):
-            logger.debug('Stream is encrypted/mapped. Collect iv data and download key')
+            #logger.debug('Stream is encrypted/mapped. Collect iv data and download key')
             key_uri, iv = self._collect_uri_iv(m3u8_data)
             status = self._download_segment(key_uri)
             if status[1] == 0: logger.error(f'Failed to download key/map file with error: {status[0]}')
@@ -109,10 +109,10 @@ class HLSDownloader(BaseDownloader):
         if iv:
             raise Exception("Current code cannot decode IV links")
 
-        logger.debug('Collect .ts segment urls')
+        #logger.debug('Collect .ts segment urls')
         ts_urls = self._collect_ts_urls(m3u8_link, m3u8_data)
 
-        logger.debug('Downloading collected .ts segments')
+        #logger.debug('Downloading collected .ts segments')
         metadata = {
             'type': 'segments',
             'total': len(ts_urls),
@@ -120,14 +120,14 @@ class HLSDownloader(BaseDownloader):
         }
         self._multi_threaded_download(self._download_segment, ts_urls, **metadata)
 
-        logger.debug('Rewrite m3u8 file with downloaded .ts segments paths')
+        #logger.debug('Rewrite m3u8 file with downloaded .ts segments paths')
         self._rewrite_m3u8_file(m3u8_data)
 
-        logger.debug('Converting .ts files to .mp4')
+        #logger.debug('Converting .ts files to .mp4')
         self._convert_to_mp4()
 
         # remove temp dir once completed and dir is empty
-        logger.debug('Removing temporary directories')
+        #logger.debug('Removing temporary directories')
         self._remove_out_dirs()
 
         return (0, 'Success')
