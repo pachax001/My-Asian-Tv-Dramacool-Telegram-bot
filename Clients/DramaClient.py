@@ -56,10 +56,10 @@ class DramaClient(BaseClient):
 
             # get last episode number
             element = soup.select_one(self.episode_link_element)
-            if element:
-                last_ep_no = element.text.strip().split()[-1]
-            else:
-                return None
+            if last_ep_element is None:
+                return meta
+
+            last_ep_no = last_ep_element.text.strip().split()[-1]
             # if series is ongoing, get expected no of total episodes. works only for dramas where meta is available
             if meta['Status'].lower() != 'completed':
                 try:
