@@ -55,7 +55,7 @@ class DramaClient(BaseClient):
                     meta[line.split(':')[0].strip()] = line.split(':')[1].strip().split('\n')[0]
 
             # get last episode number
-            element = soup.select_one(self.episode_link_element)
+            last_ep_element = soup.select_one(self.episode_link_element)
             if last_ep_element is None:
                 return meta
 
